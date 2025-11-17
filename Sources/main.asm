@@ -41,7 +41,7 @@ DIR_SOUTH             EQU 3
 DIR_WEST              EQU 4
 
 ; Turn deltas (heading arithmetic mod 4)
-TURN_LEFT             EQU 3               ; -1 mod4
+TURN_LEFT             EQU 3               ; -1 mod 4
 TURN_STRAIGHT         EQU 0
 TURN_RIGHT            EQU 1
 TURN_UTURN            EQU 2
@@ -101,7 +101,7 @@ NO_BLANK              DS.B 1                   ; Used in â€™leading zeroâ€™ blan
 BCD_SPARE             RMB  10                  ; Extra space for decimal point and string terminator
 
 ; Robot Guidance Values
-MAZE_TABLE:           DS.B 6                   ; holds chosen direction per intersection (1..4), 0=unknown
+MAZE_TABLE:           DS.B 8                   ; holds chosen direction per intersection (1..4), 0=unknown
 MAZE_COUNT:           DS.B 1                   ; number of intersections discovered
 CURRENT_INTERSECTION: DS.B 1                   ; index of current intersection (1..MAX)
 HEADING:              DS.B 1                   ; 0..3 (N,E,S,W) or use DIR_*
@@ -300,24 +300,29 @@ AT_INTERSECTION_ST_EXIT RTS
               
 ; The moving branch state
 MOVING_BRANCH_ST
-                    RTS
+
+MOVING_BRANCH_ST_EXIT                    RTS
               
 ; The bumper collide state
 BUMPER_COLLIDE_ST
-                    RTS
+
+BUMPER_COLLIDE_ST_EXIT                   RTS
               
 ; The backtracking state
 BACKTRACKING_ST
-                    RTS
+
+BACKTRACKING_ST_EXIT                    RTS
               
 ; The retracing state
 RETRACING_ST
-                    RTS
+
+RETRACING_ST_EXIT                    RTS
  
 
 ;--------------------------------------------------------------------------
 ; Storing Decisions
 
+; This stores the decision for each intersection found within the maze
 STORE_DECISION: LDX   #MAZE_TABLE              ; Point to start of maze table
                 LDAB  CURRENT_INTERSECTION     ; Get current intersection index
                 ABX                            ; Add offset (X = X + B)
@@ -330,6 +335,8 @@ STORE_DECISION: LDX   #MAZE_TABLE              ; Point to start of maze table
                 INC   MAZE_COUNT               ; New intersection discovered!
                 
 STORE_EXIT:     RTS
+
+UPDATE_HEADING 
 
 ;--------------------------------------------------------------------------
 ; Initialize Ports
@@ -432,7 +439,7 @@ RS_LOOP          LDAA  SENSOR_NUM               ; Load current sensor number
                  JSR   SELECT_SENSOR            ; Select corresponding physical sensor
 
                  LDY   #400                     ; Wait ~20ms to stabilize sensor reading
-                 JSR   DELAY_50US               ; (400 * 50µs = 20ms)
+                 JSR   DELAY_50US               ; (400 * 50ï¿½s = 20ms)
 
                  LDAA  #%10000001               ; Configure ATD: single scan, channel AN1
                  STAA  ATDCTL5                  ; Start analog-to-digital conversion
@@ -456,7 +463,7 @@ RS_EXIT          RTS                            ; Return from subroutine
 
 ; Selects one of the guider sensors using PORTA bits connected to a 74HC4051 mux.
 ; Sensor number (0-4) is passed in ACCA.
-; Only bits 2–4 of PORTA are modified; bits 0,1,5,6,7 are preserved.
+; Only bits 2ï¿½4 of PORTA are modified; bits 0,1,5,6,7 are preserved.
 SELECT_SENSOR    PSHA                           ; Save ACCA (sensor number) temporarily
 
                  LDAA  PORTA                    ; Read PORTA
