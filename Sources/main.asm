@@ -70,11 +70,11 @@ T_LEFT_INT            EQU 5               ; Left turn interval
 
                       ORG $3850                ; Where our TOF counter register lives
 ; Sensors
-SENSOR_LINE           FCB $01                  ; Storageforguider sensorreadings
-SENSOR_BOW            FCB $23                  ; Initializedto testvalues
-SENSOR_PORT           FCB $45
-SENSOR_MID            FCB $67
-SENSOR_STBD           FCB $89
+SENSOR_LINE           FCB $01                  ; Line Sensor
+SENSOR_BOW            FCB $23                  ; Front ("bow") sensor
+SENSOR_PORT           FCB $45                  ; Left sensor
+SENSOR_MID            FCB $67                  ; Center sensor
+SENSOR_STBD           FCB $89                  ; Right sensor
 SENSOR_NUM            RMB 1                    ; The currently selected sensor
 
 ; LCD Display
@@ -92,7 +92,7 @@ TOF_COUNTER           DC.B 0                   ; The timer, incremented at 23Hz
 CURRENT_STATE         DC.B 3                   ; Current state register
 
 ; Conversion Units
-TEN_THOUS             DS.B 1                   ; 10,000 digit
+TEN_THOUSAND          DS.B 1                   ; 10,000 digit
 THOUSANDS             DS.B 1                   ; 1,000 digit
 HUNDREDS              DS.B 1                   ; 100 digit
 TENS                  DS.B 1                   ; 10 digit
@@ -186,16 +186,117 @@ DISP_EXIT           RTS                               ; Exit from the state disp
 ; States
 
 ; The idle state
-IDLE_ST
-                    RTS
+IDLE_ST             BRCLR PORTAD0,$04,NO_IDLE_ST
+                    JSR   INIT_FWD
+                    MOVB  #STATE_SEARCH_LINE,CURRENT_STATE
+
+NO_IDLE_ST          NOP
+
+IDLE_ST_EXIT        RTS
               
-; The search line state
-SEARCH_LINE_ST
-                    RTS
+; The searching for a line state 
+SEARCH_LINE_ST:     JSR   SENSOR_READ             
+                                
+                    LDAA  SENSOR_BOW               
+                    CMPA  #THRESH_DARK             
+                    BLO   STILL_SEARCHING          
+                
+FOLLOW_LINE         LDAA  SENSOR_LINE              
+                    CMPA  #$68                    
+                    BEQ   ON_CENTER                
+                    BLO   STEER_RIGHT              
+                
+STEER_LEFT          JSR   INIT_LEFT_TRN
+                    BRA   SEARCH_EXIT
+                
+STEER_RIGHT         JSR   INIT_RIGHT_TRN
+                    BRA   SEARCH_EXIT
+                
+ON_CENTER           JSR   INIT_FWD
+                    JSR   SENSOR_READ
+                    
+                    LDAA  SENSOR_PORT
+                    LDAB  SENSOR_STBD
+                    
+                    CMPA  #THRESH_DARK
+                    BHS   FOUND_INTERSECTION   
+                    
+                    CMPB  #THRESH_DARK
+                    BHS   FOUND_INTERSECTION
+                
+                    BRA   SEARCH_EXIT
+               
+STILL_SEARCHING     JSR   INIT_FWD 
+
+FOUND_INTERSECTION  MOVB  #STATE_AT_INTERSECTION,CURRENT_STATE
+                    JSR   INIT_ALL_STP
+                    BRA   SEARCH_EXIT              
+                
+SEARCH_EXIT:        RTS
               
 ; The at intersection state
-AT_INTERSECTION_ST
-                    RTS
+AT_INTERSECTION_ST:     JSR   SENSOR_READ
+
+                        INC   CURRENT_INTERSECTION ; Increment intersection counter (we're at a new or revisited intersection
+                        
+                        LDX   #MAZE_TABLE
+                        LDAB  CURRENT_INTERSECTION
+                        ABX
+                        LDAA  0,X
+                        
+                        CMPA  #0                       ; First visit?
+                        BEQ   TRY_LEFT
+                        
+                        CMPA  #TURN_LEFT
+                        BEQ   TRY_STRAIGHT             ; Already tried left, try straight
+                        
+                        CMPA  #TURN_STRAIGHT
+                        BEQ   TRY_RIGHT                ; Already tried straight, try right                      
+
+; Try turning left (highest priority)
+TRY_LEFT:               LDAA  SENSOR_PORT              ; Check if left path exists
+                        CMPA  #THRESH_DARK
+                        BLO   TRY_STRAIGHT             ; No left path, try straight
+                        
+                        LDAA  #TURN_LEFT               ; Left exists! Take it
+                        JSR   STORE_DECISION
+                        JSR   UPDATE_HEADING
+                        JSR   INIT_LEFT_TRN
+                        
+                        LDAA  #STATE_MOVING_BRANCH
+                        STAA  CURRENT_STATE
+                        RTS
+
+; Try going straight (medium priority)
+TRY_STRAIGHT:           LDAA  SENSOR_BOW               ; Check if straight path exists
+                        CMPA  #THRESH_DARK
+                        BLO   TRY_RIGHT                ; No straight path, try right
+                        
+                        LDAA  #TURN_STRAIGHT           ; Straight exists! Take it
+                        JSR   STORE_DECISION
+                        JSR   UPDATE_HEADING
+                        JSR   INIT_FWD
+                        
+                        LDAA  #STATE_MOVING_BRANCH
+                        STAA  CURRENT_STATE
+                        RTS
+
+; Try turning right (lowest priority)
+TRY_RIGHT:              LDAA  SENSOR_STBD              ; Check if right path exists
+                        CMPA  #THRESH_DARK
+                        BLO   ALL_TRIED                ; No right path either!
+                        
+                        LDAA  #TURN_RIGHT              ; Right exists! Take it
+                        JSR   STORE_DECISION
+                        JSR   UPDATE_HEADING
+                        JSR   INIT_RIGHT_TRN
+                        
+                        LDAA  #STATE_MOVING_BRANCH
+                        STAA  CURRENT_STATE
+                        RTS
+
+
+AT_INTERSECTION_ST_EXIT RTS
               
 ; The moving branch state
 MOVING_BRANCH_ST
@@ -213,6 +314,23 @@ BACKTRACKING_ST
 RETRACING_ST
                     RTS
  
+
+;--------------------------------------------------------------------------
+; Storing Decisions
+
+STORE_DECISION: LDX   #MAZE_TABLE              ; Point to start of maze table
+                LDAB  CURRENT_INTERSECTION     ; Get current intersection index
+                ABX                            ; Add offset (X = X + B)
+                STAA  0,X                      ; Store direction at MAZE_TABLE[index]
+                
+                LDAB  MAZE_COUNT               ; Increment intersection counter if this is a new intersection
+                CMPB  CURRENT_INTERSECTION
+                BHI   STORE_EXIT               ; Already been here
+                
+                INC   MAZE_COUNT               ; New intersection discovered!
+                
+STORE_EXIT:     RTS
+
 ;--------------------------------------------------------------------------
 ; Initialize Ports
  
@@ -261,8 +379,6 @@ INIT_LEFT_TRN   BCLR  PORTA,%00000010           ; Set FWD dir. for STARBOARD (ri
                 ADDA  #T_LEFT_INT 
                 STAA  T_LEFT_TRN
                 RTS
-
-
                 
 ;--------------------------------------------------------------------------
 ; TOF Control Subroutines
@@ -281,7 +397,91 @@ TOF_ISR       INC   TOF_COUNTER
               STAA  TFLG2                     ; TOF
               RTI
 
+;---------------------------------------------------------------------------
+; Guider Sensor Read Subroutine
+SENSOR_READ   JSR G_LEDS_ON     ; Enable the guider LEDs
+              JSR READ_SENSORS  ; Read the 5 guider sensors
+              JSR G_LEDS_OFF    ; Disable the guider LEDs
+              RTS
+
+
+;---------------------------------------------------------------------------
+; Guider LED Control Subroutines
+
+; Turn on guider LEDs (to measure reflected light via illumination)
+G_LEDS_ON       BSET  PORTA,%00100000           ; Set bit 5 of PORTA to 1 (enable LEDs)
+                RTS
+
+; Turn off guider LEDs (to measure ambient light or conserve power)
+G_LEDS_OFF      BCLR  PORTA,%00100000           ; Clear bit 5 of PORTA to 0 (disable LEDs)
+                RTS
+
+;---------------------------------------------------------------------------
+; Sensor Reading Subroutine
+
+; This routine reads all 5 guider sensors in sequence, storing their values
+; into RAM variables SENSOR_LINE through SENSOR_STBD.
+;
+; Uses: A/D converter channel AN1. Sensors are selected via the guider board mux.
+READ_SENSORS
+    
+RS_MAIN_LOOP     CLR   SENSOR_NUM               ; Initialize sensor index to 0
+                 LDX   #SENSOR_LINE             ; Point X at the start of sensor RAM array
+                 
+RS_LOOP          LDAA  SENSOR_NUM               ; Load current sensor number
+                 JSR   SELECT_SENSOR            ; Select corresponding physical sensor
+
+                 LDY   #400                     ; Wait ~20ms to stabilize sensor reading
+                 JSR   DELAY_50US               ; (400 * 50µs = 20ms)
+
+                 LDAA  #%10000001               ; Configure ATD: single scan, channel AN1
+                 STAA  ATDCTL5                  ; Start analog-to-digital conversion
+
+                 BRCLR ATDSTAT0,$80,*           ; Loop until conversion complete (SCF=1)
+
+                 LDAA  ATDDR0L                  ; Read 8-bit ADC result from ATDDR0L
+                 STAA  0,X                      ; Store result at current sensor location
+
+                 CPX   #SENSOR_STBD             ; Check if last sensor (index 4)
+                 BEQ   RS_EXIT                  ; If yes, exit
+                 
+                 INC   SENSOR_NUM               ; Increment sensor index
+                 INX                            ; Increment pointer to next RAM location
+                 BRA   RS_LOOP                  ; Repeat for next sensor
+
+RS_EXIT          RTS                            ; Return from subroutine
+
+;---------------------------------------------------------------------------
+; Sensor Selector Subroutine
+
+; Selects one of the guider sensors using PORTA bits connected to a 74HC4051 mux.
+; Sensor number (0-4) is passed in ACCA.
+; Only bits 2–4 of PORTA are modified; bits 0,1,5,6,7 are preserved.
+SELECT_SENSOR    PSHA                           ; Save ACCA (sensor number) temporarily
+
+                 LDAA  PORTA                    ; Read PORTA
+                 ANDA  #%11100011               ; Clear bits 2-4 (sensor select bits)
+                 STAA  TEMP                     ; Store modified value in TEMP
+                 
+                 PULA                           ; Restore sensor number to ACCA
+                 ASLA                           ; Shift sensor number left twice (bits 0-2 to 2-4)
+                 ASLA
+                 ANDA  #%00011100               ; Mask off irrelevant bits
+                 
+                 ORAA  TEMP                     ; Merge with stored PORTA bits (update sensor bits)
+                 STAA  PORTA                    ; Write back to PORTA (select sensor)
+                 RTS
 
 
 
-     
+
+; Delay subroutine - provides ~50 microsecond delay
+DELAY_50US      PSHX                            ; (2 E-clk) Protect the X register
+
+OUTER_LOOP      LDX   #300                      ; (2 E-clk) Initialize the inner loop counter
+
+INNER_LOOP      NOP                             ; (1 E-clk) No operation
+                DBNE  X,INNER_LOOP              ; (3 E-clk) If the inner cntr not 0, loop again
+                DBNE  Y,OUTER_LOOP              ; (3 E-clk) If the outer cntr not 0, loop again
+                PULX                            ; (3 E-clk) Restore the X register
+                RTS                             ; (5 E-clk) Else return     
