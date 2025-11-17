@@ -22,16 +22,16 @@ LCD_RS_SIGNAL         EQU $40             ; LCD RS-signal pin
 
 ; LCD Commands
 CLEAR_HOME            EQU $01             ; Clears the LCD screen and moves the cursor to home position (top-left).
-INTERFACE             EQU $38             ; Tells the LCD to use 8-bit data mode, 2-line display, and 5×8 dot characters.
+INTERFACE             EQU $38             ; Tells the LCD to use 8-bit data mode, 2-line display, and 5ï¿½8 dot characters.
 CURSOR_OFF            EQU $0C             ; Turns on the display, cursor off, without blinking
 SHIFT_OFF             EQU $06             ; Makes the cursor move to the right automatically after each character. No display shift.
 LCD_SEC_LINE          EQU 64              ; Address in LCD's memory where line 2 starts. Used to position the cursor on the second line.
 
 
 ; Other useful LCD codes
-NULL                  EQU 00              ; The string ’null terminator’
-CR                    EQU $0D             ; The ’Carriage Return’ character
-SPACE                 EQU ' '             ; The ’space’character
+NULL                  EQU 00              ; The string ï¿½null terminatorï¿½
+CR                    EQU $0D             ; The ï¿½Carriage Returnï¿½ character
+SPACE                 EQU ' '             ; The ï¿½spaceï¿½character
 
 ; Directions and Headings
 DIR_UNKNOWN           EQU 0
@@ -91,7 +91,7 @@ THOUSANDS             DS.B 1                   ; 1,000 digit
 HUNDREDS              DS.B 1                   ; 100 digit
 TENS                  DS.B 1                   ; 10 digit
 UNITS                 DS.B 1                   ; 1 digit
-NO_BLANK              DS.B 1                   ; Used in ’leading zero’ blanking by BCD2ASC
+NO_BLANK              DS.B 1                   ; Used in ï¿½leading zeroï¿½ blanking by BCD2ASC
 BCD_SPARE             RMB  10                  ; Extra space for decimal point and string terminator
 
 ; Robot Guidance Values
