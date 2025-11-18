@@ -68,7 +68,7 @@ SENSOR_NUM              RMB 1                               ; The currently sele
 
 ; Tof Counter
 TOF_COUNTER             DC.B 0                              ; The timer, incremented at 23Hz
-CURRENT_STATE           DC.B 3                              ; Current state register
+CURRENT_STATE           DC.B 0                              ; Current state register
 
 
 ; Storage for Maze Mapping
@@ -577,7 +577,7 @@ INIT_PORTS              BCLR DDRAD,$FF                      ; Make PORTAD an inp
                         BSET DDRT, $30                      ; STAR_SPEED, PORT_SPEED 00110000
                         
                         RTS
-
+                        
 ;--------------------------------------------------------------------------
 ; Motor Control Subroutines
 ;--------------------------------------------------------------------------
