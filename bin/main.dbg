@@ -5566,7 +5566,7 @@ MAIN:
 ; State Machine Dispatcher
 ;-------------------------------------------------------------------
 
-DISPATCHER              CMPA  #STATE_IDLE                   ; If itâ€™s the IDLE state 
+DISPATCHER              CMPA  #STATE_IDLE                   ; If it’s the IDLE state 
                         BNE   NOT_IDLE                      ;
                         JSR   IDLE_ST                       ; then call IDLE_ST routine
                         BRA   DISP_EXIT                     ; and exit
@@ -5840,7 +5840,7 @@ BACKTRACKING_EXIT:      RTS
 GET_INTERSECTION_PTR:   LDX   #MAZE_TABLE                   ; Base of maze table
                         LDAA  CURRENT_INTERSECTION          ; Get current intersection index
                         LDAB  #3                            ; 3 bytes per intersection
-                        MUL                                 ; D = A Ã— B
+                        MUL                                 ; D = A × B
                         LEAX  D,X                           ; X = base + offset
                         RTS
  
@@ -6118,7 +6118,7 @@ RS_LOOP                 LDAA  SENSOR_NUM                    ; Load current senso
                         JSR   SELECT_SENSOR                 ; Select corresponding physical sensor
 
                         LDY   #400                        ; Wait ~20ms to stabilize sensor reading
-                        JSR   DELAY_50US                    ; (400 * 50ï¿½s = 20ms)
+                        JSR   DELAY_50US                    ; (400 * 50?s = 20ms)
 
                         LDAA  #%10000001                    ; Configure ATD: single scan, channel AN1
                         STAA  ATDCTL5                       ; Start analog-to-digital conversion
