@@ -31,10 +31,10 @@ STATE_BUMPER_COLLIDE    EQU 4                               ; Dead end detected 
 STATE_BACKTRACKING      EQU 5                               ; Retrace back to last intersection and correct stored decision
 STATE_RETRACING         EQU 6                               ; Full retrace back to the start (following stored solutions only)
 
-; Thresholds for the sensors (tune these)
-THRESH_LIGHT            EQU $45                             ; Example 64 decimal (set by calibration)
+; Thresholds for the sensors 
+THRESH_LIGHT            EQU $45                             ; 
 THRESH_CENTER           EQU $56                             ; Center value for line sensor
-THRESH_DARK             EQU $D1                             ; Example 128 decimal
+THRESH_DARK             EQU $D1                             ; 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -68,6 +68,7 @@ SENSOR_NUM              RMB 1                               ; The currently sele
 
 ; Tof Counter
 TOF_COUNTER             DC.B 0                              ; The timer, incremented at 23Hz
+CC                      DC.B 8
 CURRENT_STATE           DC.B 0                              ; Current state register
 
 
@@ -537,17 +538,19 @@ LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor val
 
 NO_FRONT_BUMPER         LDAA  SENSOR_PORT 
                         CMPA  #THRESH_DARK
+                        BLO   NO_PORT_SENSOR
                         LDAA  #STATE_AT_INTERSECTION
                         STAA  CURRENT_STATE
-                        BGE   LINE_NAV_EXIT                 ; If sensor >= THRESH_DARK, exit
+                        JMP   LINE_NAV_EXIT
                         
-                        LDAA  SENSOR_STBD
+NO_PORT_SENSOR          LDAA  SENSOR_STBD
                         CMPA  #THRESH_DARK
+                        BLO   NO_STARBOARD_SENSOR
                         LDAA  #STATE_AT_INTERSECTION
                         STAA  CURRENT_STATE
-                        BGE   LINE_NAV_EXIT                 ; If sensor >= THRESH_DARK, exit
+                        JMP   LINE_NAV_EXIT          
 
-                        LDAA  SENSOR_LINE
+NO_STARBOARD_SENSOR     LDAA  SENSOR_LINE
                         CMPA  #THRESH_CENTER
                         BEQ   LINE_NAV_FORWARD
                         BLO   LINE_NAV_RIGHT                ; Sensor low -> line to right
