@@ -32,9 +32,9 @@ STATE_BACKTRACKING      EQU 5                               ; Retrace back to la
 STATE_RETRACING         EQU 6                               ; Full retrace back to the start (following stored solutions only)
 
 ; Thresholds for the sensors 
-THRESH_LIGHT            EQU $45                             ; 
-THRESH_CENTER           EQU $56                             ; Center value for line sensor
-THRESH_DARK             EQU $D1                             ; 
+THRESH_LIGHT            EQU $60                             ; 
+THRESH_CENTER           EQU $80                             ; Center value for line sensor
+THRESH_DARK             EQU $C0                             ; 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -556,14 +556,18 @@ NO_STARBOARD_SENSOR     LDAA  SENSOR_LINE
                         BLO   LINE_NAV_RIGHT                ; Sensor low -> line to right
 
 LINE_NAV_LEFT:          JSR   INIT_LEFT_TRN 
-                        JSR   WAIT_FOR_STRIP
+                        LDY   #100
+                        JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_RIGHT_TRN
-                        JSR   WAIT_FOR_STRIP
+                        LDY   #100
+                        JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
+                        LDY   #100
+                        JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_EXIT:          RTS
@@ -723,7 +727,7 @@ SELECT_SENSOR           PSHA                                ; Save ACCA (sensor 
 
 DELAY_50US              PSHX                                ; (2 E-clk) Protect the X register
 
-OUTER_LOOP              LDX   #300                        ; (2 E-clk) Initialize the inner loop counter
+OUTER_LOOP              LDX   #300                          ; (2 E-clk) Initialize the inner loop counter
 
 INNER_LOOP              NOP                                 ; (1 E-clk) No operation
                         DBNE  X,INNER_LOOP                  ; (3 E-clk) If the inner cntr not 0, loop again
