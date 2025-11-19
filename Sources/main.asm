@@ -32,9 +32,9 @@ STATE_BACKTRACKING      EQU 5                               ; Retrace back to la
 STATE_RETRACING         EQU 6                               ; Full retrace back to the start (following stored solutions only)
 
 ; Thresholds for the sensors (tune these)
-THRESH_LIGHT            EQU $40                             ; Example 64 decimal (set by calibration)
-THRESH_CENTER           EQU $80                             ; Center value for line sensor
-THRESH_DARK             EQU $80                             ; Example 128 decimal
+THRESH_LIGHT            EQU $45                             ; Example 64 decimal (set by calibration)
+THRESH_CENTER           EQU $56                             ; Center value for line sensor
+THRESH_DARK             EQU $D1                             ; Example 128 decimal
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -59,11 +59,11 @@ HALF_SECOND_DELAY       EQU 12                              ; Approx 0.5 seconds
 
                         ORG $3800                           ; Where our TOF counter register lives
 ; Sensors
-SENSOR_LINE             FCB $01                             ; Line Sensor
-SENSOR_BOW              FCB $23                             ; Front ("bow") sensor
-SENSOR_PORT             FCB $45                             ; Left sensor
-SENSOR_MID              FCB $67                             ; Center sensor
-SENSOR_STBD             FCB $89                             ; Right sensor
+SENSOR_LINE             FCB $00                             ; Line Sensor
+SENSOR_BOW              FCB $00                             ; Front ("bow") sensor
+SENSOR_PORT             FCB $00                             ; Left sensor
+SENSOR_MID              FCB $00                             ; Center sensor
+SENSOR_STBD             FCB $00                             ; Right sensor
 SENSOR_NUM              RMB 1                               ; The currently selected sensor
 
 ; Tof Counter
@@ -100,6 +100,7 @@ Entry:
                         CLI                                 ; Enable interrupt
                         
                         JSR INIT_PORTS
+                        JSR INIT_ATD
                         MOVB #2, HEADING          
                         BRA MAIN
 
@@ -107,15 +108,14 @@ Entry:
 ; Main Program Section
 ;-------------------------------------------------------------------
 
-MAIN:
-                        LDAA  CURRENT_STATE
+MAIN:                   LDAA  CURRENT_STATE
                         JSR   DISPATCHER
                         BRA   MAIN
 ;-------------------------------------------------------------------
 ; State Machine Dispatcher
 ;-------------------------------------------------------------------
 
-DISPATCHER              CMPA  #STATE_IDLE                   ; If it’s the IDLE state 
+DISPATCHER              CMPA  #STATE_IDLE                   ; If it's the IDLE state 
                         BNE   NOT_IDLE                      ;
                         JSR   IDLE_ST                       ; then call IDLE_ST routine
                         BRA   DISP_EXIT                     ; and exit
@@ -158,9 +158,10 @@ DISP_EXIT               RTS                                 ; Exit from the stat
 ; The Idle State - Waiting for Start Signal
 ;--------------------------------------------------------------------------
 
-IDLE_ST                 BRCLR PORTAD0,$04,NO_IDLE_ST        ; Wait for front bumper press
-                        MOVB  #STATE_SEARCH_LINE,CURRENT_STATE
-
+IDLE_ST                 BRSET  PORTAD0,$04,NO_IDLE_ST        ; Wait for front bumper press
+                        MOVB   #STATE_SEARCH_LINE,CURRENT_STATE
+                        BRA    IDLE_ST_EXIT
+                        
 NO_IDLE_ST              NOP                                 ; Do nothing while idle
 
 IDLE_ST_EXIT            RTS
@@ -320,10 +321,10 @@ BUMPER_COLLIDE_EXIT:    RTS
 ; The Retracing State - Retrace back to start following stored solutions
 ;-------------------------------------------------------------------------
 
-RETRACING_ST            LDAA CURRENT_INTERSECTION
-                        BEQ REACHED_START                   ; If at start, we're done retracing
+RETRACING_ST            LDAA  CURRENT_INTERSECTION
+                        BEQ   REACHED_START                   ; If at start, we're done retracing
 
-                        JSR   SENSOR_READ                  ; Refresh sensor values
+                        JSR   SENSOR_READ                   ; Refresh sensor values
 
                         LDAA  SENSOR_PORT                   ; Check PORT sensor for line to check if we're at an intersection
                         CMPA  #THRESH_DARK                  ; Compare with dark threshold
@@ -570,10 +571,8 @@ LINE_NAV_EXIT:          RTS
 
 INIT_PORTS              BCLR DDRAD,$FF                      ; Make PORTAD an input (DDRAD@$0272)
                         BSET DDRA, $FF                      ; Make PORTA an output (DDRA@$0002)
-                        BSET DDRB, $FF                      ; Make PORTB an output (DDRB@$0003)
-                        BSET DDRJ, $C0                      ; Make pins 7,6 of PTJ outputs (DDRJ @$026A)
-                        
-                        BSET DDRA, $03                      ; STAR_DIR, PORT_DIR  00000011
+                        BSET DDRB, $FF
+                        BSET DDRJ, $C0
                         BSET DDRT, $30                      ; STAR_SPEED, PORT_SPEED 00110000
                         
                         RTS
@@ -585,17 +584,11 @@ INIT_PORTS              BCLR DDRAD,$FF                      ; Make PORTAD an inp
 ; Turn motors on to move forward
 INIT_FWD                BCLR  PORTA,%00000011               ; Set FWD direction for both motors
                         BSET  PTT,%00110000                 ; Turn on the drive motors
-                        LDAA  TOF_COUNTER                   ; Mark the fwd time Tfwd
-                        ADDA  #FWD_INT
-                        STAA  T_FWD
                         RTS
                     
 ; Turn motors on to move backward
 INIT_REV                BSET  PORTA,%00000011               ; Set REV direction for both motors
                         BSET  PTT,%00110000                 ; Turn on the drive motors
-                        LDAA  TOF_COUNTER                   ; Mark the fwd time Tfwd
-                        ADDA  #REV_INT
-                        STAA  T_REV
                         RTS
                     
 ; Turn motors off
@@ -603,17 +596,15 @@ INIT_ALL_STP            BCLR  PTT,%00110000                 ; Turn off the drive
                         RTS
                     
 ; Turn motors on to rotate right
-INIT_RIGHT_TRN          BSET  PORTA,%00000010               ; Set REV dir. for STARBOARD (right) motor
-                        LDAA  TOF_COUNTER                   ; Mark the fwd_turn time Tfwdturn
-                        ADDA  #T_RIGHT_INT
-                        STAA  T_RIGHT_TRN
+INIT_RIGHT_TRN          BCLR  PORTA,%00000010
+                        BSET  PORTA,%00000001               ; Set REV dir. for STARBOARD (right) motor
+                        BSET  PTT,  %00110000
                         RTS
                     
 ; Turn motors on to rotate left
-INIT_LEFT_TRN           BCLR  PORTA,%00000010               ; Set FWD dir. for STARBOARD (right) motor
-                        LDAA  TOF_COUNTER                   ; Mark the fwd time Tfwd
-                        ADDA  #T_LEFT_INT 
-                        STAA  T_LEFT_TRN
+INIT_LEFT_TRN           BCLR  PORTA,%00000001               ; Set FWD dir. for STARBOARD (right) motor
+                        BSET  PORTA,%00000010
+                        BSET  PTT,%00110000
                         RTS
                 
 ;--------------------------------------------------------------------------
@@ -736,6 +727,18 @@ INNER_LOOP              NOP                                 ; (1 E-clk) No opera
                         DBNE  Y,OUTER_LOOP                  ; (3 E-clk) If the outer cntr not 0, loop again
                         PULX                                ; (3 E-clk) Restore the X register
                         RTS                                 ; (5 E-clk) Else return     
+
+;---------------------------------------------------------------------------
+; Delay subroutine - provides ~50 microsecond delay
+;---------------------------------------------------------------------------
+
+INIT_ATD                MOVB #$C0, ATDCTL2
+                        LDY #1
+                        JSR DELAY_50US
+                        MOVB #$00, ATDCTL3
+                        MOVB #$85,ATDCTL4
+                        BSET ATDDIEN,$0C
+                        RTS
 
 ;--------------------------------------------------------------------------
 ; Interrupt Vector Table
