@@ -101,8 +101,7 @@ Entry:
                         CLI                                 ; Enable interrupt
                         
                         JSR INIT_PORTS
-                        JSR INIT_ATD
-                        MOVB #2, HEADING          
+                        JSR INIT_ATD         
                         BRA MAIN
 
 ;-------------------------------------------------------------------
@@ -118,23 +117,16 @@ MAIN:                   JSR   LINE_NAVIGATION
 
 LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor values
 
-                        BRSET PORTAD0,$04,NO_FRONT_BUMPER   ; Check front bumper for collision
-                        LDAA  #STATE_BUMPER_COLLIDE         ; Update state to bumper collide
-                        STAA  CURRENT_STATE
-                        BRA   LINE_NAV_EXIT
-
 NO_FRONT_BUMPER         LDAA  SENSOR_PORT 
                         CMPA  #THRESH_DARK
                         BLO   NO_PORT_SENSOR
-                        LDAA  #STATE_AT_INTERSECTION
-                        STAA  CURRENT_STATE
+                        JSR   INIT_ALL_STP
                         JMP   LINE_NAV_EXIT
                         
 NO_PORT_SENSOR          LDAA  SENSOR_STBD
                         CMPA  #THRESH_DARK
                         BLO   NO_STARBOARD_SENSOR
-                        LDAA  #STATE_AT_INTERSECTION
-                        STAA  CURRENT_STATE
+                        JSR   INIT_ALL_STP
                         JMP   LINE_NAV_EXIT          
 
 NO_STARBOARD_SENSOR     LDAA  SENSOR_LINE
@@ -245,7 +237,7 @@ RS_LOOP                 LDAA  SENSOR_NUM                    ; Load current senso
                         JSR   SELECT_SENSOR                 ; Select corresponding physical sensor
 
                         LDY   #400                        ; Wait ~20ms to stabilize sensor reading
-                        JSR   DELAY_50US                    ; (400 * 50µs = 20ms)
+                        JSR   DELAY_50US                    ; (400 * 50Âµs = 20ms)
 
                         LDAA  #%10000001                    ; Configure ATD: single scan, channel AN1
                         STAA  ATDCTL5                       ; Start analog-to-digital conversion
