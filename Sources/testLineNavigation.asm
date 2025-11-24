@@ -143,19 +143,19 @@ NO_STARBOARD_SENSOR     LDAA  SENSOR_LINE
                         BRA   LINE_NAV_LEFT                 ; Sensor high -> line to left
 
 LINE_NAV_LEFT:          JSR   INIT_LEFT_TRN 
-                        LDY   #60                           ; Shorter movement pulse
+                        LDY   #1000                           ; Shorter movement pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_RIGHT_TRN
-                        LDY   #60                           ; Shorter movement pulse
+                        LDY   #1000                           ; Shorter movement pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #80                           ; Slightly longer forward pulse
+                        LDY   #1000                           ; Slightly longer forward pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
