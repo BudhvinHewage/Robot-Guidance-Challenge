@@ -117,7 +117,7 @@ MAIN:                   JSR   LINE_NAVIGATION
 
 LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor values
 
-NO_FRONT_BUMPER         LDAA  SENSOR_PORT 
+                        LDAA  SENSOR_PORT 
                         CMPA  #THRESH_DARK
                         BLO   NO_PORT_SENSOR
                         JSR   INIT_ALL_STP
