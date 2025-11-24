@@ -32,8 +32,8 @@ STATE_BACKTRACKING      EQU 5                               ; Retrace back to la
 STATE_RETRACING         EQU 6                               ; Full retrace back to the start (following stored solutions only)
 
 ; Thresholds for the sensors 
-THRESH_LIGHT            EQU $60                             ; 
-THRESH_CENTER           EQU $80                             ; Center value for line sensor
+THRESH_LIGHT            EQU $10                             ; 
+THRESH_CENTER           EQU $60                             ; Center value for line sensor
 THRESH_DARK             EQU $C0                             ; 
 
 ; Motor Timing Intervals
@@ -143,13 +143,13 @@ NO_STARBOARD_SENSOR     LDAA  SENSOR_LINE
                         BRA   LINE_NAV_LEFT                 ; Sensor high -> line to left
 
 LINE_NAV_LEFT:          JSR   INIT_LEFT_TRN 
-                        LDY   #10000                           ; Shorter movement pulse
+                        LDY   #500                           ; Shorter movement pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_RIGHT_TRN
-                        LDY   #10000                           ; Shorter movement pulse
+                        LDY   #500                           ; Shorter movement pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
