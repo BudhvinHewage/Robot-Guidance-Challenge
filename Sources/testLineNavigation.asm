@@ -31,10 +31,13 @@ STATE_BUMPER_COLLIDE    EQU 4                               ; Dead end detected 
 STATE_BACKTRACKING      EQU 5                               ; Retrace back to last intersection and correct stored decision
 STATE_RETRACING         EQU 6                               ; Full retrace back to the start (following stored solutions only)
 
-; Thresholds for the sensors 
-THRESH_LIGHT            EQU $10                             ; 
-THRESH_CENTER           EQU $60                             ; Center value for line sensor
-THRESH_DARK             EQU $C0                             ; 
+; Thresholds for the sensors  
+THRESH_CENTER_PORT      EQU $60                             ; If below this, robot is veering to the left
+THRESH_CENTER_STBD      EQU $70                             ; If above this, robot is veering to the right
+THRESH_BOW              EQU $9A                             ; Front sensor
+THRESH_MID              EQU $AA                             ; Middle sensor
+THRESH_PORT             EQU $AC                             ; Left sensor
+THRESH_STBD             EQU $AC                             ; Right sensor 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -118,7 +121,7 @@ MAIN:                   JSR   LINE_NAVIGATION
 LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor values
 
                         LDAA  SENSOR_PORT 
-                        CMPA  #THRESH_DARK
+                        CMPA  #THRESH_PORT
                         BLO   NO_PORT_SENSOR
                         JSR   INIT_ALL_STP
                         JMP   LINE_NAV_EXIT
@@ -129,33 +132,27 @@ NO_PORT_SENSOR          LDAA  SENSOR_STBD
                         JSR   INIT_ALL_STP
                         JMP   LINE_NAV_EXIT          
 
-NO_STARBOARD_SENSOR     LDAA  SENSOR_LINE
-                        CMPA  #THRESH_CENTER
-                        BEQ   LINE_NAV_FORWARD              ; Centered - go straight, no stop needed
-                        
-                        JSR   INIT_ALL_STP
-                        LDY   #40
-                        JSR   DELAY_50US
-                        
-                        LDAA  SENSOR_LINE                   ; Re-load sensor value
-                        CMPA  #THRESH_CENTER
+NO_STARBOARD_SENSOR     LDAA  SENSOR_LINE                   ; Re-load sensor value
+                        CMPA  #THRESH_CENTER_PORT
                         BLO   LINE_NAV_RIGHT                ; Sensor low -> line to right
-                        BRA   LINE_NAV_LEFT                 ; Sensor high -> line to left
+                        CMPA  #THRESH_CENTER_STBD
+                        BHI   LINE_NAV_LEFT
+                        BRA   LINE_NAV_FORWARD              ; Otherwise, go forward
 
 LINE_NAV_LEFT:          JSR   INIT_LEFT_TRN 
-                        LDY   #500                           ; Shorter movement pulse
+                        LDY   #2000                        ; Shorter movement pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_RIGHT_TRN
-                        LDY   #500                           ; Shorter movement pulse
+                        LDY   #2000                        ; Shorter movement pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #10000                           ; Slightly longer forward pulse
+                        LDY   #8000                        ; Slightly longer forward pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
