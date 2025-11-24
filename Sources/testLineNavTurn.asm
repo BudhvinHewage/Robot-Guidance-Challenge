@@ -113,8 +113,14 @@ Entry:
 ; Main Program Section
 ;-------------------------------------------------------------------
 
-MAIN:                   JSR   LINE_NAVIGATION
-                        BRA   MAIN
+MAIN:                   BRSET PORTAD0,$04,NO_START          ; Check front bumper - if NOT pressed, skip to NO_START
+                        BRA   START_NAVIGATION              ; Bumper IS pressed, start navigation
+
+NO_START:               JSR   INIT_ALL_STP                  ; Keep motors stopped while waiting
+                        BRA   MAIN                          ; Loop back and keep checking bumper
+
+START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line following
+                        BRA   START_NAVIGATION              ; Keep navigating
 
 ;-------------------------------------------------------------------------- 
 ; Movement along an indicated line until intersection or bumper is detected
