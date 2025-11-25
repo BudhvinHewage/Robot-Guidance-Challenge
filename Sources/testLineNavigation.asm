@@ -32,8 +32,8 @@ STATE_BACKTRACKING      EQU 5                               ; Retrace back to la
 STATE_RETRACING         EQU 6                               ; Full retrace back to the start (following stored solutions only)
 
 ; Thresholds for the sensors  
-THRESH_CENTER_PORT      EQU $60                             ; If below this, robot is veering to the left
-THRESH_CENTER_STBD      EQU $70                             ; If above this, robot is veering to the right
+THRESH_CENTER_PORT      EQU $62                             ; If below this, robot is veering to the left
+THRESH_CENTER_STBD      EQU $68                             ; If above this, robot is veering to the right
 THRESH_BOW              EQU $9A                             ; Front sensor
 THRESH_MID              EQU $AA                             ; Middle sensor
 THRESH_PORT             EQU $AC                             ; Left sensor
@@ -56,6 +56,9 @@ TWO_SECOND_DELAY        EQU 46                              ; Approx 2 seconds a
 SECOND_DELAY            EQU 25                              ; Approx 1 second at 23Hz
 HALF_SECOND_DELAY       EQU 12                              ; Approx 0.5 seconds at 23Hz
 
+; Temporal Constants
+FOUND_INTERSECTION      EQU 1
+
 ;-------------------------------------------------------------------
 ; Variable and Data Section
 ;-------------------------------------------------------------------      
@@ -67,6 +70,7 @@ SENSOR_BOW              FCB $00                             ; Front ("bow") sens
 SENSOR_PORT             FCB $00                             ; Left sensor
 SENSOR_MID              FCB $00                             ; Center sensor
 SENSOR_STBD             FCB $00                             ; Right sensor
+
 SENSOR_NUM              RMB 1                               ; The currently selected sensor
 
 ; Tof Counter
@@ -118,7 +122,12 @@ NO_START:               JSR   INIT_ALL_STP                  ; Keep motors stoppe
                         BRA   MAIN                          ; Loop back and keep checking bumper
 
 START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line following
+                        LDAA  FOUND_INTERSECTION
+                        CMPA  #$01
+                        BEQ   END_MAIN                      ; An intersection found, end main program
                         BRA   START_NAVIGATION              ; Keep navigating
+
+ END_MAIN:              SWI                                 ; Software Interrupt - end of main prograM
                         
 ;-------------------------------------------------------------------------- 
 ; Movement along an indicated line until intersection or bumper is detected
@@ -126,41 +135,55 @@ START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line follo
 
 LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor values
 
-                        LDAA  SENSOR_PORT 
+                        ; Check if MID sensor has the main line
+                        LDAA  SENSOR_MID
+                        CMPA  #THRESH_MID
+                        BLO   NO_INTERSECTION               ; MID doesn't see line = not at intersection
+
+                        ; MID sees line - now check for branch lines
+                        LDAA  SENSOR_PORT
                         CMPA  #THRESH_PORT
-                        BLO   NO_PORT_SENSOR
-                        JSR   INIT_ALL_STP
-                        JMP   LINE_NAV_EXIT
+                        BGE   INTERSECTION_FOUND            ; PORT high + MID high = real intersection
                         
-NO_PORT_SENSOR          LDAA  SENSOR_STBD
-                        CMPA  #THRESH_DARK
-                        BLO   NO_STARBOARD_SENSOR
-                        JSR   INIT_ALL_STP
-                        JMP   LINE_NAV_EXIT          
+                        LDAA  SENSOR_STBD
+                        CMPA  #THRESH_STBD
+                        BGE   INTERSECTION_FOUND            ; STBD high + MID high = real intersection
 
-NO_STARBOARD_SENSOR     LDAA  SENSOR_LINE                   ; Re-load sensor value
+NO_INTERSECTION:        ; No intersection - do line following
+                        LDAA  SENSOR_LINE                   ; Use differential for positioning
                         CMPA  #THRESH_CENTER_PORT
-                        BLO   LINE_NAV_RIGHT                ; Sensor low -> line to right
+                        BLO   LINE_NAV_RIGHT                ; Line to right
                         CMPA  #THRESH_CENTER_STBD
-                        BHI   LINE_NAV_LEFT
-                        BRA   LINE_NAV_FORWARD              ; Otherwise, go forward
+                        BHI   LINE_NAV_LEFT                 ; Line to left
+                        BRA   LINE_NAV_FORWARD              ; Centered
 
-LINE_NAV_LEFT:          JSR   INIT_LEFT_TRN 
-                        LDY   #2000                        ; Shorter movement pulse
+INTERSECTION_FOUND:     JSR   INIT_ALL_STP
+                        LDAA  #$01
+                        STAA  FOUND_INTERSECTION
+                        JMP   LINE_NAV_EXIT
+
+LINE_NAV_LEFT:          JSR   INIT_LEFT_TRN
+                        LDY   #400                          ; Gentle correction
                         JSR   DELAY_50US
-                        JSR   INIT_ALL_STP                  ; Stop after pulse
+                        JSR   INIT_ALL_STP
+                        LDY   #50
+                        JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_RIGHT_TRN
-                        LDY   #2000                        ; Shorter movement pulse
+                        LDY   #400                          ; Gentle correction
                         JSR   DELAY_50US
-                        JSR   INIT_ALL_STP                  ; Stop after pulse
+                        JSR   INIT_ALL_STP
+                        LDY   #50
+                        JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #8000                        ; Slightly longer forward pulse
+                        LDY   #800                         ; Strong forward bias
                         JSR   DELAY_50US
-                        JSR   INIT_ALL_STP                  ; Stop after pulse
+                        JSR   INIT_ALL_STP
+                        LDY   #50
+                        JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_EXIT:          RTS                   

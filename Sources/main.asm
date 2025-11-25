@@ -267,6 +267,9 @@ T_TRIED_BOTH:           LDAA  ENTRY_DIRECTION               ; Load into Accumula
 
                         LDAA  #STATE_BACKTRACKING           ; Continue backtracking
                         STAA  CURRENT_STATE                 ; Update current state to backtracking
+                        LDAA  CURRENT_INTERSECTION          ; Load current intersection index
+                        DECA                                ; Decrement to previous intersection
+                        STAA  CURRENT_INTERSECTION          ; Store updated intersection index
 
 AT_INTERSECTION_EXIT:   RTS
 
@@ -544,10 +547,8 @@ TURN_RIGHT:             JSR   INIT_RIGHT_TRN
 
 EXECUTE_U_TURN:         JSR   INIT_LEFT_TRN
                         JSR   WAIT_FOR_STRIP
-                        JSR   INIT_LEFT_TRN
-                        JSR   WAIT_FOR_STRIP
                         RTS
-
+ 
 ;-------------------------------------------------------------------------- 
 ; Movement along an indicated line until intersection or bumper is detected
 ;--------------------------------------------------------------------------

@@ -36,8 +36,8 @@ THRESH_CENTER_PORT      EQU $60                             ; If below this, rob
 THRESH_CENTER_STBD      EQU $70                             ; If above this, robot is veering to the right
 THRESH_BOW              EQU $9A                             ; Front sensor
 THRESH_MID              EQU $AA                             ; Middle sensor
-THRESH_PORT             EQU $DF                             ; Left sensor
-THRESH_STBD             EQU $DF                             ; Right sensor
+THRESH_PORT             EQU $AC                             ; Left sensor
+THRESH_STBD             EQU $AC                             ; Right sensor 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -56,6 +56,8 @@ TWO_SECOND_DELAY        EQU 46                              ; Approx 2 seconds a
 SECOND_DELAY            EQU 25                              ; Approx 1 second at 23Hz
 HALF_SECOND_DELAY       EQU 12                              ; Approx 0.5 seconds at 23Hz
 
+; Temporal Constants
+
 ;-------------------------------------------------------------------
 ; Variable and Data Section
 ;-------------------------------------------------------------------      
@@ -67,6 +69,7 @@ SENSOR_BOW              FCB $00                             ; Front ("bow") sens
 SENSOR_PORT             FCB $00                             ; Left sensor
 SENSOR_MID              FCB $00                             ; Center sensor
 SENSOR_STBD             FCB $00                             ; Right sensor
+
 SENSOR_NUM              RMB 1                               ; The currently selected sensor
 
 ; Tof Counter
@@ -74,7 +77,6 @@ TOF_COUNTER             DC.B 0                              ; The timer, increme
 CC                      DC.B 8
 CURRENT_STATE           DC.B 0                              ; Current state register
 
-INTERSECTION_FLAG       DC.B 0                              ; Flag: 0 = no intersection yet, 1 = already turned
 
 ; Storage for Maze Mapping
 MAZE_TABLE:             DS.B 24                             ; Maze table for up to 8 intersections (3 bytes each) where byte 0 = entry dir, byte 1 = first exit tried, byte 2 = second exit tried
@@ -105,7 +107,7 @@ Entry:
                         CLI                                 ; Enable interrupt
                         
                         JSR INIT_PORTS
-                        JSR INIT_ATD          
+                        JSR INIT_ATD         
                         BRA MAIN
 
 ;-------------------------------------------------------------------
@@ -118,64 +120,26 @@ MAIN:                   BRSET PORTAD0,$04,NO_START          ; Check front bumper
 NO_START:               JSR   INIT_ALL_STP                  ; Keep motors stopped while waiting
                         BRA   MAIN                          ; Loop back and keep checking bumper
 
-START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line following
+START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line following                    
                         BRA   START_NAVIGATION              ; Keep navigating
 
+                        
 ;-------------------------------------------------------------------------- 
 ; Movement along an indicated line until intersection or bumper is detected
 ;--------------------------------------------------------------------------
 
 LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor values
 
-                        LDAA  SENSOR_STBD
-                        CMPA  #THRESH_STBD
-                        BGE   SECOND_CHECK
-                        JMP   NO_TURN
-
-SECOND_CHECK            LDAA  SENSOR_MID
-                        CMPA  #THRESH_MID
-                        BGE   NAVIGATE_RIGHT                          
-
-NO_TURN                 LDAA  SENSOR_LINE                   ; Re-load sensor value
-                        CMPA  #THRESH_CENTER_PORT
-                        BLO   LINE_NAV_RIGHT                ; Sensor low -> line to right
-
-                        CMPA  #THRESH_CENTER_STBD
-                        BHI   LINE_NAV_LEFT
-                        BRA   LINE_NAV_FORWARD              ; Otherwise, go forward
-
-LINE_NAV_LEFT:          JSR   INIT_LEFT_TRN 
-                        LDY   #800                        ; Shorter movement pulse
-                        JSR   DELAY_50US
-                        JSR   INIT_ALL_STP                  ; Stop after pulse
-                        BRA   LINE_NAV_EXIT
-
-LINE_NAV_RIGHT:         JSR   INIT_RIGHT_TRN
-                        LDY   #800                        ; Shorter movement pulse
-                        JSR   DELAY_50US
-                        JSR   INIT_ALL_STP                  ; Stop after pulse
-                        BRA   LINE_NAV_EXIT
-
-LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #3000                        ; Slightly longer forward pulse
-                        JSR   DELAY_50US
-                        JSR   INIT_ALL_STP                  ; Stop after pulse
-                        BRA   LINE_NAV_EXIT
+                        JSR   LEFT_WAIT_FOR_STRIP           ; Wait for strip fade/rise
+                        LDY   #20000                        ; 
+                        JSR   DELAY_50US                    ;
                         
-NAVIGATE_RIGHT          JSR   INIT_ALL_STP
-                        LDY   #500
-                        JSR   DELAY_50US
-                        JSR   INIT_RIGHT_TRN
-                        JSR   WAIT_FOR_STRIP
-                        JSR   INIT_ALL_STP
-                        JMP   LINE_NAV_EXIT
-                        JSR   INIT_FWD
-                        LDY   #100
-                        JSR   INIT_ALL_STP
-
-
-LINE_NAV_EXIT:          RTS                                 ; Return from line navigation
-    
+                        JSR   RIGHT_WAIT_FOR_STRIP          ; Wait for strip fade/rise    
+                        LDY   #20000                        ; 
+                        JSR   DELAY_50US                    ; 
+                        
+                        RTS
+                                           
 
 ;--------------------------------------------------------------------------
 ; Initialize Ports
@@ -219,6 +183,82 @@ INIT_LEFT_TRN           BCLR  PORTA,%00000001               ; Set FWD dir. for S
                         RTS
 
 ;---------------------------------------------------------------------------
+; Wait for Strip Subroutine - Left Turn
+;---------------------------------------------------------------------------
+
+LEFT_WAIT_FOR_STRIP:    
+                
+LEFT_WAIT_STRIP_FADE:   JSR  INIT_LEFT_TRN
+                        LDY  #300
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #50
+                        JSR  DELAY_50US
+
+                        JSR  SENSOR_READ
+                        LDAA SENSOR_BOW
+                        CMPA #THRESH_BOW
+                        BGE  LEFT_WAIT_STRIP_FADE                ; Still on old strip, wait
+                        LDAA SENSOR_MID
+                        CMPA #THRESH_MID
+                        BGE  LEFT_WAIT_STRIP_FADE                ; Still on old strip, wait
+
+LEFT_WAIT_STRIP_RISE:   JSR  INIT_LEFT_TRN
+                        LDY  #300
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #50
+                        JSR  DELAY_50US
+
+                        JSR SENSOR_READ
+                        LDAA SENSOR_BOW
+                        CMPA #THRESH_BOW
+                        BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waiting
+                        LDAA SENSOR_MID
+                        CMPA #THRESH_MID
+                        BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waiting
+
+LEFT_WAIT_STRIP_DONE:   RTS
+
+;---------------------------------------------------------------------------
+; Wait for Strip Subroutine - Right Turn
+;---------------------------------------------------------------------------
+
+RIGHT_WAIT_FOR_STRIP:   
+    
+RIGHT_WAIT_STRIP_FADE:  JSR  INIT_RIGHT_TRN
+                        LDY  #300
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #50
+                        JSR  DELAY_50US
+
+                        JSR  SENSOR_READ
+                        LDAA SENSOR_BOW
+                        CMPA #THRESH_BOW
+                        BGE  RIGHT_WAIT_STRIP_FADE                ; Still on old strip, wait
+                        LDAA SENSOR_MID
+                        CMPA #THRESH_MID
+                        BGE  RIGHT_WAIT_STRIP_FADE                ; Still on old strip, wait
+
+RIGHT_WAIT_STRIP_RISE:  JSR  INIT_RIGHT_TRN
+                        LDY  #300
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #50
+                        JSR  DELAY_50US
+
+                        JSR SENSOR_READ
+                        LDAA SENSOR_BOW
+                        CMPA #THRESH_BOW
+                        BLO  RIGHT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waiting
+                        LDAA SENSOR_MID
+                        CMPA #THRESH_MID
+                        BLO  RIGHT_WAIT_STRIP_RISE          ; New strip not detected yet, keep waiting
+                                        
+RIGHT_WAIT_STRIP_DONE:  RTS
+
+;---------------------------------------------------------------------------
 ; Guider Sensor Read Subroutine
 ;---------------------------------------------------------------------------
 
@@ -251,7 +291,7 @@ RS_MAIN_LOOP            CLR   SENSOR_NUM                    ; Initialize sensor 
 RS_LOOP                 LDAA  SENSOR_NUM                    ; Load current sensor number
                         JSR   SELECT_SENSOR                 ; Select corresponding physical sensor
 
-                        LDY   #400                          ; Wait ~20ms to stabilize sensor reading
+                        LDY   #400                        ; Wait ~20ms to stabilize sensor reading
                         JSR   DELAY_50US                    ; (400 * 50Âµs = 20ms)
 
                         LDAA  #%10000001                    ; Configure ATD: single scan, channel AN1
@@ -269,43 +309,6 @@ RS_LOOP                 LDAA  SENSOR_NUM                    ; Load current senso
                         INX                                 ; Increment pointer to next RAM location
                         BRA   RS_LOOP                       ; Repeat for next sensor
 RS_EXIT                 RTS                                 ; Return from subroutine
-
-;---------------------------------------------------------------------------
-; Wait for Strip Subroutine - Used during turns to detect the line
-;---------------------------------------------------------------------------
-
-WAIT_FOR_STRIP:         JSR  G_LEDS_ON
-                
-WAIT_STRIP_FADE:        JSR  READ_SENSORS
-                        LDAA SENSOR_BOW
-                        CMPA #THRESH_BOW
-                        BLO  WAIT_STRIP_RISE                ; Faded, move to rise detection
-                        
-                        ; Still on strip - keep turning
-                        JSR  INIT_RIGHT_TRN                 ; Continue turn
-                        LDY  #400                           ; Short pulse
-                        JSR  DELAY_50US
-                        JSR  INIT_ALL_STP                   ; Stop
-                        LDY  #100                           ; Brief pause
-                        JSR  DELAY_50US
-                        BRA  WAIT_STRIP_FADE                ; Check again
-
-WAIT_STRIP_RISE:        JSR  READ_SENSORS
-                        LDAA SENSOR_BOW
-                        CMPA #THRESH_BOW
-                        BGE  WAIT_STRIP_DONE                ; New strip detected!
-                        
-                        ; Not on strip yet - keep turning
-                        JSR  INIT_RIGHT_TRN                 ; Continue turn
-                        LDY  #400                           ; Short pulse
-                        JSR  DELAY_50US
-                        JSR  INIT_ALL_STP                   ; Stop
-                        LDY  #100                           ; Brief pause
-                        JSR  DELAY_50US
-                        BRA  WAIT_STRIP_RISE                ; Keep waiting
-
-WAIT_STRIP_DONE:        JSR  G_LEDS_OFF 
-                        RTS
 
 ;---------------------------------------------------------------------------
 ; Sensor Selector Subroutine
