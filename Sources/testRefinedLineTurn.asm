@@ -162,7 +162,7 @@ INTERSECTION_FOUND:     JSR   INIT_ALL_STP
                         STAA  FOUND_INTERSECTION
                         JMP   LINE_NAV_EXIT
 
-LINE_NAV_LEFT:          JSR   INIT_LEFT_TRN
+LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
                         LDY   #400                          ; Gentle correction
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
@@ -170,7 +170,7 @@ LINE_NAV_LEFT:          JSR   INIT_LEFT_TRN
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
-LINE_NAV_RIGHT:         JSR   INIT_RIGHT_TRN
+LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
                         LDY   #400                          ; Gentle correction
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
@@ -227,6 +227,20 @@ INIT_RIGHT_TRN          BCLR  PORTA,%00000010
 INIT_LEFT_TRN           BCLR  PORTA,%00000001               ; Set FWD dir. for STARBOARD (right) motor
                         BSET  PORTA,%00000010
                         BSET  PTT,%00110000
+                        RTS
+
+; Turn motors on to pivot right (Port FWD, Starboard OFF)
+INIT_SOFT_RIGHT:        BSET  PORTA,%00000010               ; Set Port (Left) direction FWD (0) (Assuming BCLR for FWD)
+                        BCLR  PORTA,%00000001               ; Set Starboard (Right) direction FWD (0) - doesn't matter since it's off
+                        BCLR  PTT,  %00010000               ; Turn OFF Starboard motor (bit 4)
+                        BSET  PTT,  %00100000               ; Turn ON Port motor (bit 5)
+                        RTS                    
+
+; Turn motors on to pivot left (Starboard FWD, Port OFF)
+INIT_SOFT_LEFT:         BCLR  PORTA,%00000010               ; Set Port (Left) direction FWD (0) - doesn't matter since it's off
+                        BSET  PORTA,%00000001               ; Set Starboard (Right) direction FWD (0)
+                        BSET  PTT,  %00010000               ; Turn ON Starboard motor (bit 4)
+                        BCLR  PTT,  %00100000               ; Turn OFF Port motor (bit 5)
                         RTS
 
 ;---------------------------------------------------------------------------
