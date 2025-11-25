@@ -279,12 +279,29 @@ WAIT_FOR_STRIP:         JSR  G_LEDS_ON
 WAIT_STRIP_FADE:        JSR  READ_SENSORS
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
-                        BGE  WAIT_STRIP_FADE                ; Still on old strip, wait
+                        BLO  WAIT_STRIP_RISE                ; Faded, move to rise detection
+                        
+                        ; Still on strip - keep turning
+                        JSR  INIT_RIGHT_TRN                 ; Continue turn
+                        LDY  #400                           ; Short pulse
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP                   ; Stop
+                        LDY  #100                           ; Brief pause
+                        JSR  DELAY_50US
+                        BRA  WAIT_STRIP_FADE                ; Check again
 
 WAIT_STRIP_RISE:        JSR  READ_SENSORS
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
                         BGE  WAIT_STRIP_DONE                ; New strip detected!
+                        
+                        ; Not on strip yet - keep turning
+                        JSR  INIT_RIGHT_TRN                 ; Continue turn
+                        LDY  #400                           ; Short pulse
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP                   ; Stop
+                        LDY  #100                           ; Brief pause
+                        JSR  DELAY_50US
                         BRA  WAIT_STRIP_RISE                ; Keep waiting
 
 WAIT_STRIP_DONE:        JSR  G_LEDS_OFF 
