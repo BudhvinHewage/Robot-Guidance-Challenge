@@ -11,6 +11,8 @@
 ; Include derivative-specific definitions 
                         INCLUDE 'derivative.inc'
 
+; The sensor value can show when exactly the robot will line up with the tape, adjust the value and play with it identify when it stop on the line, or as close as possible
+
 ;-------------------------------------------------------------------
 ; Equates Section
 ;-------------------------------------------------------------------
@@ -34,8 +36,8 @@ STATE_RETRACING         EQU 6                               ; Full retrace back 
 ; Thresholds for the sensors  
 THRESH_CENTER_PORT      EQU $60                             ; If below this, robot is veering to the left
 THRESH_CENTER_STBD      EQU $70                             ; If above this, robot is veering to the right
-THRESH_BOW              EQU $9A                             ; Front sensor
-THRESH_MID              EQU $AA                             ; Middle sensor
+THRESH_BOW              EQU $B0                             ; Front sensor
+THRESH_MID              EQU $B0                             ; Middle sensor
 THRESH_PORT             EQU $AC                             ; Left sensor
 THRESH_STBD             EQU $AC                             ; Right sensor 
 
@@ -108,7 +110,8 @@ Entry:
                         
                         JSR INIT_PORTS
                         JSR INIT_ATD         
-                        BRA MAIN
+                        
+                        SWI
 
 ;-------------------------------------------------------------------
 ; Main Program Section
@@ -203,7 +206,7 @@ INIT_SOFT_LEFT:         BCLR  PORTA,%00000010               ; Set Port (Left) di
 LEFT_WAIT_FOR_STRIP:    
                 
 LEFT_WAIT_STRIP_FADE:   JSR  INIT_LEFT_TRN
-                        LDY  #300
+                        LDY  #700
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #50
@@ -213,12 +216,9 @@ LEFT_WAIT_STRIP_FADE:   JSR  INIT_LEFT_TRN
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
                         BGE  LEFT_WAIT_STRIP_FADE                ; Still on old strip, wait
-                        LDAA SENSOR_MID
-                        CMPA #THRESH_MID
-                        BGE  LEFT_WAIT_STRIP_FADE                ; Still on old strip, wait
 
 LEFT_WAIT_STRIP_RISE:   JSR  INIT_LEFT_TRN
-                        LDY  #300
+                        LDY  #700
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #50
@@ -227,9 +227,6 @@ LEFT_WAIT_STRIP_RISE:   JSR  INIT_LEFT_TRN
                         JSR SENSOR_READ
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
-                        BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waiting
-                        LDAA SENSOR_MID
-                        CMPA #THRESH_MID
                         BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waiting
 
 LEFT_WAIT_STRIP_DONE:   RTS
@@ -241,34 +238,28 @@ LEFT_WAIT_STRIP_DONE:   RTS
 RIGHT_WAIT_FOR_STRIP:   
     
 RIGHT_WAIT_STRIP_FADE:  JSR  INIT_RIGHT_TRN
-                        LDY  #300
+                        LDY  #500
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
-                        LDY  #50
+                        LDY  #10
                         JSR  DELAY_50US
 
                         JSR  SENSOR_READ
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
                         BGE  RIGHT_WAIT_STRIP_FADE                ; Still on old strip, wait
-                        LDAA SENSOR_MID
-                        CMPA #THRESH_MID
-                        BGE  RIGHT_WAIT_STRIP_FADE                ; Still on old strip, wait
 
 RIGHT_WAIT_STRIP_RISE:  JSR  INIT_RIGHT_TRN
-                        LDY  #300
+                        LDY  #500
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
-                        LDY  #50
+                        LDY  #10
                         JSR  DELAY_50US
 
                         JSR SENSOR_READ
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
-                        BLO  RIGHT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waiting
-                        LDAA SENSOR_MID
-                        CMPA #THRESH_MID
-                        BLO  RIGHT_WAIT_STRIP_RISE          ; New strip not detected yet, keep waiting
+                        BLO  RIGHT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
                                         
 RIGHT_WAIT_STRIP_DONE:  RTS
 
@@ -306,7 +297,7 @@ RS_LOOP                 LDAA  SENSOR_NUM                    ; Load current senso
                         JSR   SELECT_SENSOR                 ; Select corresponding physical sensor
 
                         LDY   #400                        ; Wait ~20ms to stabilize sensor reading
-                        JSR   DELAY_50US                    ; (400 * 50Âµs = 20ms)
+                        JSR   DELAY_50US                    ; (400 * 50Ã‚Âµs = 20ms)
 
                         LDAA  #%10000001                    ; Configure ATD: single scan, channel AN1
                         STAA  ATDCTL5                       ; Start analog-to-digital conversion
