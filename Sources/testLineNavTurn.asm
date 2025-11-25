@@ -129,9 +129,14 @@ LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor val
 
                         LDAA  SENSOR_STBD
                         CMPA  #THRESH_STBD
-                        BLO   NAVIGATE_RIGHT  
+                        BGE   SECOND_CHECK
+                        JMP   NO_TURN
 
-                        LDAA  SENSOR_LINE                   ; Re-load sensor value
+SECOND_CHECK            LDAA  SENSOR_MID
+                        CMPA  #THRESH_MID
+                        BGE   NAVIGATE_RIGHT                          
+
+NO_TURN                 LDAA  SENSOR_LINE                   ; Re-load sensor value
                         CMPA  #THRESH_CENTER_PORT
                         BLO   LINE_NAV_RIGHT                ; Sensor low -> line to right
 
@@ -164,6 +169,9 @@ NAVIGATE_RIGHT          JSR   INIT_ALL_STP
                         JSR   WAIT_FOR_STRIP
                         JSR   INIT_ALL_STP
                         JMP   LINE_NAV_EXIT
+                        JSR   INIT_FWD
+                        LDY   #100
+                        JSR   INIT_ALL_STP
 
 
 LINE_NAV_EXIT:          RTS                                 ; Return from line navigation
