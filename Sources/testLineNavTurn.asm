@@ -36,8 +36,8 @@ THRESH_CENTER_PORT      EQU $60                             ; If below this, rob
 THRESH_CENTER_STBD      EQU $70                             ; If above this, robot is veering to the right
 THRESH_BOW              EQU $9A                             ; Front sensor
 THRESH_MID              EQU $AA                             ; Middle sensor
-THRESH_PORT             EQU $AC                             ; Left sensor
-THRESH_STBD             EQU $AC                             ; Right sensor
+THRESH_PORT             EQU $DF                             ; Left sensor
+THRESH_STBD             EQU $DF                             ; Right sensor
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -105,8 +105,7 @@ Entry:
                         CLI                                 ; Enable interrupt
                         
                         JSR INIT_PORTS
-                        JSR INIT_ATD
-                        CLR INTERSECTION_FLAG               ; Clear intersection flag          
+                        JSR INIT_ATD          
                         BRA MAIN
 
 ;-------------------------------------------------------------------
@@ -128,18 +127,9 @@ START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line follo
 
 LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor values
 
-                        LDAA  INTERSECTION_FLAG             ; Check if we've already turned
-                        BNE   SKIP_INTERSECTION_CHECK       ; If flag=1, skip intersection detection
-
-                        LDAA  SENSOR_PORT                   ; Check left sensor
-                        CMPA  #THRESH_PORT
-                        BGE   INTERSECTION_DETECTED         ; Branch detected!
-                        
-                        LDAA  SENSOR_STBD                   ; Check right sensor
+                        LDAA  SENSOR_STBD
                         CMPA  #THRESH_STBD
-                        BGE   INTERSECTION_DETECTED         ; Branch detected!
-
-SKIP_INTERSECTION_CHECK:                                    ; Continue line following
+                        BLO   NAVIGATE_RIGHT  
 
                         LDAA  SENSOR_LINE                   ; Re-load sensor value
                         CMPA  #THRESH_CENTER_PORT
@@ -149,47 +139,32 @@ SKIP_INTERSECTION_CHECK:                                    ; Continue line foll
                         BHI   LINE_NAV_LEFT
                         BRA   LINE_NAV_FORWARD              ; Otherwise, go forward
 
-INTERSECTION_DETECTED:  JSR   INIT_ALL_STP                  ; Stop at intersection
-                        LDY   #100                        ; Brief pause
-                        JSR   DELAY_50US
-                        
-                        ; Move forward into intersection
-                        JSR   INIT_FWD
-                        LDY   #500                        ; Advance into intersection
-                        JSR   DELAY_50US
-                        JSR   INIT_ALL_STP
-                        
-                        LDY   #100                        ; Settle
-                        JSR   DELAY_50US
-                        
-                        ; Execute right turn
-                        JSR   INIT_RIGHT_TRN
-                        JSR   WAIT_FOR_STRIP                ; Turn until we see the strip
-                        JSR   INIT_ALL_STP                  ; Stop motors
-                        
-                        LDY   #200                        ; Settle after turn
-                        JSR   DELAY_50US
-                        
-                        MOVB  #1, INTERSECTION_FLAG         ; Mark that we've turned
-                        BRA   LINE_NAV_EXIT
-
 LINE_NAV_LEFT:          JSR   INIT_LEFT_TRN 
-                        LDY   #2000                        ; Shorter movement pulse
+                        LDY   #800                        ; Shorter movement pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_RIGHT_TRN
-                        LDY   #2000                        ; Shorter movement pulse
+                        LDY   #800                        ; Shorter movement pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #8000                        ; Slightly longer forward pulse
+                        LDY   #3000                        ; Slightly longer forward pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         BRA   LINE_NAV_EXIT
+                        
+NAVIGATE_RIGHT          JSR   INIT_ALL_STP
+                        LDY   #500
+                        JSR   DELAY_50US
+                        JSR   INIT_RIGHT_TRN
+                        JSR   WAIT_FOR_STRIP
+                        JSR   INIT_ALL_STP
+                        JMP   LINE_NAV_EXIT
+
 
 LINE_NAV_EXIT:          RTS                                 ; Return from line navigation
     
@@ -269,7 +244,7 @@ RS_LOOP                 LDAA  SENSOR_NUM                    ; Load current senso
                         JSR   SELECT_SENSOR                 ; Select corresponding physical sensor
 
                         LDY   #400                          ; Wait ~20ms to stabilize sensor reading
-                        JSR   DELAY_50US                    ; (400 * 50µs = 20ms)
+                        JSR   DELAY_50US                    ; (400 * 50Âµs = 20ms)
 
                         LDAA  #%10000001                    ; Configure ATD: single scan, channel AN1
                         STAA  ATDCTL5                       ; Start analog-to-digital conversion
