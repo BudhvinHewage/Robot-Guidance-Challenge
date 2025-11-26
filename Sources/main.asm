@@ -170,7 +170,7 @@ NOT_IDLE                CMPA  #STATE_SEARCH                 ; Else if it's the S
                         JSR   SEARCH_ST                     ; then call SEARCH_LINE_ST routine
                         BRA   DISP_EXIT                     ; and exit
                 
-NOT_SEARCH_             CMPA  #STATE_AT_INTERSECTION            ; Else if it's the AT_INTERSECTION state
+NOT_SEARCH              CMPA  #STATE_AT_INTERSECTION            ; Else if it's the AT_INTERSECTION state
                         BNE   NOT_AT_INTERSECTION
                         JSR   AT_INTERSECTION_ST            ; then call AT_INTERSECTION_ST routine
                         BRA   DISP_EXIT                     ; and exit
@@ -240,7 +240,7 @@ FOUND_INTERSECTION      LDAA  #STATE_AT_INTERSECTION        ; Update state to AT
 STILL_SEARCHING         JSR   LINE_NAVIGATION               ; Move forward to find line  
                         BRA   SEARCH_ST_EXIT          
                 
-SEARCH_LINE_ST_EXIT:    RTS
+SEARCH_ST_EXIT:    RTS
 
 ;--------------------------------------------------------------------------   
 ; The At Intersection State - Decide which way to go
