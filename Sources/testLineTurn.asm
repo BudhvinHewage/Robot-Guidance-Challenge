@@ -58,9 +58,6 @@ TWO_SECOND_DELAY        EQU 46                              ; Approx 2 seconds a
 SECOND_DELAY            EQU 25                              ; Approx 1 second at 23Hz
 HALF_SECOND_DELAY       EQU 12                              ; Approx 0.5 seconds at 23Hz
 
-; Temporal Constants
-FOUND_INTERSECTION      EQU 1
-
 ;-------------------------------------------------------------------
 ; Variable and Data Section
 ;-------------------------------------------------------------------      
@@ -74,8 +71,10 @@ SENSOR_MID              FCB $00                             ; Center sensor
 SENSOR_STBD             FCB $00                             ; Right sensor
 SENSOR_NUM              RMB 1                               ; The currently selected sensor
 NULL                    EQU 00
+
 TOP_LINE                RMB 20
                         FCB NULL
+
 BOT_LINE                RMB 40
                         FCB NULL
 
@@ -103,10 +102,10 @@ T_RIGHT_TRN             DS.B  1                             ; RIGHT_TRN time - W
 T_LEFT_TRN              DS.B  1                             ; LEFT_TRN time - Was T_REV_TRN
 
 ;LCD ADDRESSES
-LCD_DAT   EQU   PORTB ;LCD data port, bits - PB7,...,PB0
-LCD_CNTR  EQU   PTJ ;LCD control port, bits - PE7(RS),PE4(E)
-LCD_E     EQU   $80 ;LCD E-signal pin
-LCD_RS    EQU   $40 ;LCD RS-signal pin
+LCD_DAT                 EQU   PORTB                         ;LCD data port, bits - PB7,...,PB0
+LCD_CNTR                EQU   PTJ                           ;LCD control port, bits - PE7(RS),PE4(E)
+LCD_E                   EQU   $80                           ;LCD E-signal pin
+LCD_RS                  EQU   $40                           ;LCD RS-signal pin
 ;LCD DISPLAY EQUATES
 CLEAR_HOME              EQU $01
 INTERFACE               EQU $38
@@ -115,21 +114,21 @@ SHIFT_OFF               EQU $06
 LCD_SEC_LINE            EQU 64
 
 
-ALIVE_COUNTER           DS.B 1; counter to toggle ALIVE display
-STR_IDLE                DC.B "IDLE" ,0
-STR_MOVING              DC.B "MOVING" ,0 
+ALIVE_COUNTER           DS.B 1                              ; Counter to toggle ALIVE display
+STR_IDLE                DC.B "IDLE        " ,0
+STR_MOVING              DC.B "MOVING      " ,0 
 STR_INTERSECTION        DC.B "INTERSECTION",0
-STR_BACKTRACK           DC.B "BACKTRACK",0 
-STR_UNKNOWN             DC.B "UNKNOWN",0   
+STR_BACKTRACK           DC.B "BACKTRACK   ",0 
+STR_UNKNOWN             DC.B "UNKNOWN     ",0   
 
 SENSOR_LABELS:          DC.B "PCPCSBS:" ,0 
                         
 ;LCD CURSOR POSITIONS FOR DISPLAY
-DP_FRONT_SENSOR EQU TOP_LINE+3
-DP_PORT_SENSOR EQU BOT_LINE+0
-DP_MID_SENSOR EQU BOT_LINE+3
-DP_STBD_SENSOR EQU BOT_LINE+6
-DP_LINE_SENSOR EQU BOT_LINE+9
+DP_FRONT_SENSOR         EQU TOP_LINE+3
+DP_PORT_SENSOR          EQU BOT_LINE+0
+DP_MID_SENSOR           EQU BOT_LINE+3
+DP_STBD_SENSOR          EQU BOT_LINE+6
+DP_LINE_SENSOR          EQU BOT_LINE+9
 
 ;-------------------------------------------------------------------
 ; Initialization
