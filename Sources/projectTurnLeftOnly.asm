@@ -36,10 +36,10 @@ STATE_BACKTRACKING      EQU 4                               ; Retrace back to la
 ; Thresholds for the sensors                                                                                   
 THRESH_CENTER_RIGHT     EQU $85                             ; If below this, robot is veering to the RIGHT
 THRESH_CENTER_LEFT      EQU $D4                             ; If above this, robot is veering to the LEFT
-THRESH_BOW              EQU $C0                             ; Front sensor
-THRESH_MID              EQU $C0                             ; Middle sensor
-THRESH_PORT             EQU $C0                             ; Left sensor
-THRESH_STBD             EQU $C0                             ; Right sensor 
+THRESH_BOW              EQU $CF                             ; Front sensor
+THRESH_MID              EQU $B5                             ; Middle sensor
+THRESH_PORT             EQU $B5                             ; Left sensor
+THRESH_STBD             EQU $CE                             ; Right sensor 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -160,8 +160,7 @@ CLEAR_MAZE:             CLR   0,X
                         BNE   CLEAR_MAZE                        
 
                         JSR INIT_PORTS
-                        JSR INIT_ATD
-                        MOVB #2, HEADING          
+                        JSR INIT_ATD        
                         BRA MAIN
 
 ;-------------------------------------------------------------------
@@ -211,7 +210,7 @@ IDLE_ST                 BRSET  PORTAD0,$04,NO_CHANGE        ; The function BRSET
                         MOVB   #STATE_SEARCH,CURRENT_STATE
                         
                         JSR    INIT_FWD
-                        LDY    #6000
+                        LDY    #10000
                         JSR    DELAY_50US
                         
                         JSR    INIT_ALL_STP
@@ -226,7 +225,7 @@ IDLE_ST_EXIT            RTS
 ; The Search State - Navigate until the first intersection is reached
 ;-------------------------------------------------------------------------
 
-SEARCH_ST:              BRSET  PORTAD0,$04,NO_CHANGE
+SEARCH_ST:              BRSET  PORTAD0,$04,NO_FRONT_BUMPER
                         LDAA   #STATE_BUMPER_COLLIDE
                         STAA   CURRENT_STATE
 
@@ -324,7 +323,46 @@ BACKTRACKING_EXIT:      RTS
 ; Execute U-Turn - Perform a 180 degree turn
 ;------------------------------------------------------------------------
 
-EXECUTE_U_TURN:         JSR  LEFT_WAIT_FOR_STRIP
+EXECUTE_U_TURN:         
+
+U_WAIT_FOR_STRIP:       JSR  INIT_REV
+                        LDY  #2000
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #1000
+                        JSR  DELAY_50US
+                        
+U_WAIT_STRIP_FADE:      JSR  INIT_LEFT_TRN
+                        LDY  #700
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #10
+                        JSR  DELAY_50US
+
+                        JSR  SENSOR_READ
+                        LDAA SENSOR_BOW
+                        CMPA #THRESH_BOW
+                        BHS  U_WAIT_STRIP_FADE                 ; Still on old strip, wait
+
+U_WAIT_STRIP_RISE:      JSR  INIT_LEFT_TRN
+                        LDY  #700
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #10
+                        JSR  DELAY_50US
+
+                        JSR  SENSOR_READ
+                        LDAA SENSOR_BOW
+                        CMPA #THRESH_BOW
+                        BLO  U_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
+                                        
+U_WAIT_STRIP_DONE:      JSR  INIT_LEFT_TRN
+                        LDY  #900
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #5000
+                        JSR  DELAY_50US
+                        
                         RTS
  
 ;-------------------------------------------------------------------------- 
@@ -338,6 +376,7 @@ LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor val
                         CMPA  #THRESH_MID
                         BLO   NO_INTERSECTION               ; MID doesn't see line = not at intersection
 
+                        JSR   SENSOR_READ
                         ; MID sees line - now check for branch lines
                         LDAA  SENSOR_PORT
                         CMPA  #THRESH_PORT
@@ -382,7 +421,7 @@ INTERSECTION_FOUND:     JSR   INIT_ALL_STP
                         JMP   LINE_NAV_EXIT
 
 LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
-                        LDY   #700                          ; <<< Adjust these values as needed
+                        LDY   #1000                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
                         LDY   #500
@@ -390,7 +429,7 @@ LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
-                        LDY   #700                          ; <<< Adjust these values as needed
+                        LDY   #1000                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
                         LDY   #500
@@ -537,7 +576,7 @@ RS_EXIT                 RTS                                 ; Return from subrou
 ;---------------------------------------------------------------------------
 
 LEFT_WAIT_FOR_STRIP:    JSR  INIT_FWD
-                        LDY  #6000
+                        LDY  #10000
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #1000
@@ -568,10 +607,10 @@ LEFT_WAIT_STRIP_RISE:   JSR  INIT_LEFT_TRN
                         BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
                                         
 LEFT_WAIT_STRIP_DONE:   JSR  INIT_LEFT_TRN
-                        LDY  #700
+                        LDY  #900
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
-                        LDY  #1000
+                        LDY  #5000
                         JSR  DELAY_50US
                         RTS
 

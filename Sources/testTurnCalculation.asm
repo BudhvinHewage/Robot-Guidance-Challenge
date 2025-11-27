@@ -39,8 +39,8 @@ THRESH_CENTER_RIGHT     EQU $85                             ; If below this, rob
 THRESH_CENTER_LEFT      EQU $DB                             ; If above this, robot is veering to the LEFT
 THRESH_BOW              EQU $CF                             ; Front sensor
 THRESH_MID              EQU $C0                             ; Middle sensor
-THRESH_PORT             EQU $CE                             ; Left sensor
-THRESH_STBD             EQU $CE                             ; Right sensor 
+THRESH_PORT             EQU $C0                             ; Left sensor
+THRESH_STBD             EQU $C0                             ; Right sensor 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -205,11 +205,13 @@ LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor val
                         CMPA  #THRESH_MID
                         BLO   NO_INTERSECTION               ; MID doesn't see line = not at intersection
 
+                        JSR  SENSOR_READ
                         ; MID sees line - now check for branch lines
                         LDAA  SENSOR_PORT
                         CMPA  #THRESH_PORT
                         BHS   INTERSECTION_FOUND            ; PORT high + MID high = real intersection
                         
+                        JSR   SENSOR_READ
                         LDAA  SENSOR_STBD
                         CMPA  #THRESH_STBD
                         BHS   INTERSECTION_FOUND            ; STBD high + MID high = real intersection
@@ -246,7 +248,7 @@ LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #1500                         ; <<< Adjust these values as needed
+                        LDY   #1300                         ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
                         LDY   #50
