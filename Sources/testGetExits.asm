@@ -35,9 +35,9 @@ STATE_RETRACING         EQU 6                               ; Full retrace back 
 
 ; <<<<<<<<<<<<<<<<<<<<< Adjust These Thresholds As Needed >>>>>>>>>>>>>>>>>>>
 ; Sensor Thresholds                                                                                 
-THRESH_CENTER_RIGHT     EQU $85                             ; If below this, robot is veering to the RIGHT
+THRESH_CENTER_RIGHT     EQU $97                             ; If below this, robot is veering to the RIGHT
 THRESH_CENTER_LEFT      EQU $DB                             ; If above this, robot is veering to the LEFT
-THRESH_BOW              EQU $C0                             ; Front sensor
+THRESH_BOW              EQU $CF                             ; Front sensor
 THRESH_MID              EQU $C0                             ; Middle sensor
 THRESH_PORT             EQU $C0                             ; Left sensor
 THRESH_STBD             EQU $C0                             ; Right sensor 
@@ -64,6 +64,11 @@ HALF_SECOND_DELAY       EQU 12                              ; Approx 0.5 seconds
 ;-------------------------------------------------------------------      
 
                         ORG $3800                           ; Where our TOF counter register lives
+
+EXIT_LIST:              DS.B 2                              ; List of available exits at current intersections
+TEMP_STORAGE            DS.B 1
+TEMP_DIRECTION          DS.B 1
+
 ; Sensors
 SENSOR_LINE             FCB $00                             ; Line Sensor
 SENSOR_BOW              FCB $00                             ; Front ("bow") sensor
@@ -95,7 +100,6 @@ HEADING:                DS.B 1                              ; 0..3 (N,E,S,W) or 
 ENTRY_DIRECTION:        DS.B 1                              ; Direction we entered current intersection from
 STATE:                  DS.B 1
 STACK_PTR:              DS.B 1                              ; Simple stack top for backtracking (store inter. indices)
-EXIT_LIST:              DS.B 2                              ; List of available exits at current intersections
 
 ; Robot Motion Time
 T_FWD                   DS.B  1                             ; FWD time
@@ -221,29 +225,54 @@ NO_INTERSECTION:        ; No intersection - do line following
 INTERSECTION_FOUND:     JSR   INIT_ALL_STP
                         LDAA  #$01
                         STAA  FOUND_INTERSECTION
+                        
+                        JSR   INIT_FWD
+                        LDY   #1100
+                        JSR   DELAY_50US
+                        
+                        JSR   INIT_ALL_STP
+                        LDY   #1200
+                        JSR   DELAY_50US
+                        
+                        JSR   INIT_FWD
+                        LDY   #1100
+                        JSR   DELAY_50US
+                        
+                        JSR   INIT_ALL_STP
+                        LDY   #1200
+                        JSR   DELAY_50US
+                        
+                        JSR   INIT_FWD
+                        LDY   #500
+                        JSR   DELAY_50US
+                        
+                        JSR   INIT_ALL_STP
+                        LDY   #500
+                        JSR   DELAY_50US
+                        
                         JMP   LINE_NAV_EXIT
 
 LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
-                        LDY   #1000                          ; <<< Adjust these values as needed
+                        LDY   #700                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #50
+                        LDY   #500
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
-                        LDY   #1000                          ; <<< Adjust these values as needed
+                        LDY   #700                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #50
+                        LDY   #500
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #2000                         ; <<< Adjust these values as needed
+                        LDY   #1200                         ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #50
+                        LDY   #800
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
@@ -437,9 +466,11 @@ RS_EXIT                 RTS                                 ; Return from subrou
 ; GET_EXITS - Determine available exits at current intersection, returning A = count, B = first exit, TEMP = second exit (if any)
 ;-----------------------------------------------------------------------
 
-GET_EXITS:              CLR   EXIT_LIST                     ; Clear exit list
+GET_EXITS:              JSR   SENSOR_READ
+
+                        CLR   EXIT_LIST                     ; Clear exit list
                         CLR   EXIT_LIST+1
-                        CLRA                                ; A will count exits found
+                        CLR   TEMP_STORAGE                             ; A will count exits found
                     
                         LDAB  SENSOR_PORT                   ; Check LEFT sensor by loading it into Accumulator B
                         CMPB  #THRESH_PORT                  ; Compare with dark threshold
@@ -451,8 +482,8 @@ GET_EXITS:              CLR   EXIT_LIST                     ; Clear exit list
                         BEQ   CHECK_STRAIGHT_SENSOR         ; Yes, skip it
                     
                         LDX   #EXIT_LIST                    ; No, it's a valid exit
-                        STAB  A,X                           ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is 0 since it is the first exit found
-                        INCA                                ; Increment Accumulator A by one to account for the fact that we found an exit on the left
+                        STAB  ,X                           ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is 0 since it is the first exit found
+                        INC   TEMP_STORAGE                                ; Increment Accumulator A by one to account for the fact that we found an exit on the left
     
 CHECK_STRAIGHT_SENSOR:  LDAB  SENSOR_BOW                    ; Check STRAIGHT sensor (SENSOR_BOW) 
                         CMPB  #THRESH_BOW                   ; Compare with dark threshold
@@ -462,9 +493,12 @@ CHECK_STRAIGHT_SENSOR:  LDAB  SENSOR_BOW                    ; Check STRAIGHT sen
                         CMPB  ENTRY_DIRECTION               ; Is this where we came from?
                         BEQ   CHECK_RIGHT_SENSOR            ; Yes, skip it
                         
-                        LDX   #EXIT_LIST                    ; No, it's a valid exit
-                        STAB   A,X                          ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is either 0 or 1 depending on whether left exit was found
-                        INCA                                ; Increment Accumulator A by one to account for the fact that we found an exit on the straight path
+                        LDX   #EXIT_LIST
+                        STAB  TEMP_DIRECTION
+                        LDAB  TEMP_STORAGE
+                        ABX
+                        STAA  0,X
+                        INC   TEMP_STORAGE                              ; Increment Accumulator A by one to account for the fact that we found an exit on the straight path
                     
 CHECK_RIGHT_SENSOR:     LDAB  SENSOR_STBD                   ; Check RIGHT sensor (SENSOR_STBD)
                         CMPB  #THRESH_STBD                  ; Compare with dark threshold
@@ -476,11 +510,15 @@ CHECK_RIGHT_SENSOR:     LDAB  SENSOR_STBD                   ; Check RIGHT sensor
                         BEQ   EXITS_FOUND                   ; Yes, skip it
                         
                         LDX   #EXIT_LIST                    ; No, it's a valid exit
-                        STAB  A,X                           ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is either 0, 1, or 2 depending on whether left and/or straight exits were found
-                        INCA                                ; Increment Accumulator A by one to account for the fact that we found an exit on the right path
+                        STAB  TEMP_DIRECTION
+                        LDAB  TEMP_STORAGE
+                        ABX
+                        STAA  0,X
+                        INC   TEMP_STORAGE                              ; Increment Accumulator A by one to account for the fact that we found an exit on the right path
 
 EXITS_FOUND:            LDAB  EXIT_LIST                     ; Load first exit into B
                
+                        LDAA  TEMP_STORAGE
                         CMPA  #2                            ; Did we find two exits?
                         BLO   GET_EXITS_DONE                ; If less than 2, we're done
                         LDAA  EXIT_LIST+1                   ; Load into Accumulator A the second exit

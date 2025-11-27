@@ -39,8 +39,8 @@ THRESH_CENTER_RIGHT     EQU $85                             ; If below this, rob
 THRESH_CENTER_LEFT      EQU $DB                             ; If above this, robot is veering to the LEFT
 THRESH_BOW              EQU $C0                             ; Front sensor
 THRESH_MID              EQU $C0                             ; Middle sensor
-THRESH_PORT             EQU $C0                             ; Left sensor
-THRESH_STBD             EQU $C0                             ; Right sensor 
+THRESH_PORT             EQU $CE                             ; Left sensor
+THRESH_STBD             EQU $CE                             ; Right sensor 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -59,14 +59,13 @@ TWO_SECOND_DELAY        EQU 46                              ; Approx 2 seconds a
 SECOND_DELAY            EQU 25                              ; Approx 1 second at 23Hz
 HALF_SECOND_DELAY       EQU 12                              ; Approx 0.5 seconds at 23Hz
 
-; Test Intersection Found Flag
-FOUND_INTERSECTION     EQU $01
 
 ;-------------------------------------------------------------------
 ; Variable and Data Section
 ;-------------------------------------------------------------------      
 
                         ORG $3800                           ; Where our TOF counter register lives
+FOUND_INTERSECTION      DS.B 1
 ; Sensors
 SENSOR_LINE             FCB $00                             ; Line Sensor
 SENSOR_BOW              FCB $00                             ; Front ("bow") sensor
@@ -165,7 +164,7 @@ NO_START:               JSR   INIT_ALL_STP                  ; Keep motors stoppe
 START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line following
                         LDAA  FOUND_INTERSECTION
                         CMPA  #$01
-                        BEQ   TEST_TURN               ; An intersection found, end main program
+                        BEQ   TEST_TURN2               ; An intersection found, end main program
                         BRA   START_NAVIGATION              ; Keep navigating
 
 TEST_TURN:              ; Setup test scenario
@@ -224,6 +223,7 @@ NO_INTERSECTION:        ; No intersection - do line following
                         BRA   LINE_NAV_FORWARD              ; Centered
 
 INTERSECTION_FOUND:     JSR   INIT_ALL_STP
+                        LDY   #5000
                         LDAA  #$01
                         STAA  FOUND_INTERSECTION
                         JMP   LINE_NAV_EXIT
@@ -232,7 +232,7 @@ LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
                         LDY   #1000                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #50
+                        LDY   #400
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
@@ -240,12 +240,12 @@ LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
                         LDY   #1000                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #50
+                        LDY   #400
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #2000                         ; <<< Adjust these values as needed
+                        LDY   #1500                         ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
                         LDY   #50
@@ -259,13 +259,13 @@ LINE_NAV_EXIT:          RTS
 ;---------------------------------------------------------------------------
 
 LEFT_WAIT_FOR_STRIP:    JSR  INIT_FWD
-                        LDY  #10000
+                        LDY  #8000
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #1000
                         JSR  DELAY_50US
                         
-LEFT_WAIT_STRIP_FADE:   JSR  INIT_LEFT_TRN
+LEFT_WAIT_STRIP_FADE:   JSR  INIT_RIGHT_TRN
                         LDY  #500
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
@@ -277,26 +277,26 @@ LEFT_WAIT_STRIP_FADE:   JSR  INIT_LEFT_TRN
                         CMPA #THRESH_BOW
                         BHS  LEFT_WAIT_STRIP_FADE                 ; Still on old strip, wait
 
-LEFT_WAIT_STRIP_RISE:   JSR  INIT_LEFT_TRN
+LEFT_WAIT_STRIP_RISE:   JSR  INIT_RIGHT_TRN
                         LDY  #500
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
                         JSR  DELAY_50US
 
-                        JSR SENSOR_READ
+                        JSR  SENSOR_READ
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
                         BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
                                         
-LEFT_WAIT_STRIP_DONE:  RTS
+LEFT_WAIT_STRIP_DONE:   RTS
 
 ;---------------------------------------------------------------------------
 ; Wait for Strip Subroutine - Right Turn
 ;---------------------------------------------------------------------------
 
 RIGHT_WAIT_FOR_STRIP:   JSR  INIT_FWD
-                        LDY  #10000
+                        LDY  #8000
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #1000
@@ -324,7 +324,7 @@ RIGHT_WAIT_STRIP_RISE:  JSR  INIT_RIGHT_TRN
                         JSR SENSOR_READ
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
-                        BLO  RIGHT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
+                        BLO  RIGHT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waiting                        
                                         
 RIGHT_WAIT_STRIP_DONE:  RTS
 
@@ -366,7 +366,7 @@ INIT_RIGHT_TRN          BCLR  PORTA,%00000010
 ; Turn motors on to rotate left
 INIT_LEFT_TRN           BCLR  PORTA,%00000001               ; Set FWD dir. for STARBOARD (right) motor
                         BSET  PORTA,%00000010
-                        BSET  PTT,%00110000
+                        BSET  PTT,  %00110000
                         RTS
 
 ; Turn motors on to pivot right (Port FWD, Starboard OFF)
