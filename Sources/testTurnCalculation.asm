@@ -37,7 +37,7 @@ STATE_RETRACING         EQU 6                               ; Full retrace back 
 ; Sensor Thresholds                                                                                 
 THRESH_CENTER_RIGHT     EQU $85                             ; If below this, robot is veering to the RIGHT
 THRESH_CENTER_LEFT      EQU $DB                             ; If above this, robot is veering to the LEFT
-THRESH_BOW              EQU $C0                             ; Front sensor
+THRESH_BOW              EQU $CF                             ; Front sensor
 THRESH_MID              EQU $C0                             ; Middle sensor
 THRESH_PORT             EQU $CE                             ; Left sensor
 THRESH_STBD             EQU $CE                             ; Right sensor 
@@ -164,7 +164,7 @@ NO_START:               JSR   INIT_ALL_STP                  ; Keep motors stoppe
 START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line following
                         LDAA  FOUND_INTERSECTION
                         CMPA  #$01
-                        BEQ   TEST_TURN2               ; An intersection found, end main program
+                        BEQ   TEST_TURN2                    ; An intersection found, end main program
                         BRA   START_NAVIGATION              ; Keep navigating
 
 TEST_TURN:              ; Setup test scenario
@@ -224,6 +224,7 @@ NO_INTERSECTION:        ; No intersection - do line following
 
 INTERSECTION_FOUND:     JSR   INIT_ALL_STP
                         LDY   #5000
+                        JSR   DELAY_50US
                         LDAA  #$01
                         STAA  FOUND_INTERSECTION
                         JMP   LINE_NAV_EXIT
@@ -265,8 +266,8 @@ LEFT_WAIT_FOR_STRIP:    JSR  INIT_FWD
                         LDY  #1000
                         JSR  DELAY_50US
                         
-LEFT_WAIT_STRIP_FADE:   JSR  INIT_RIGHT_TRN
-                        LDY  #500
+LEFT_WAIT_STRIP_FADE:   JSR  INIT_LEFT_TRN
+                        LDY  #700
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -277,8 +278,8 @@ LEFT_WAIT_STRIP_FADE:   JSR  INIT_RIGHT_TRN
                         CMPA #THRESH_BOW
                         BHS  LEFT_WAIT_STRIP_FADE                 ; Still on old strip, wait
 
-LEFT_WAIT_STRIP_RISE:   JSR  INIT_RIGHT_TRN
-                        LDY  #500
+LEFT_WAIT_STRIP_RISE:   JSR  INIT_LEFT_TRN
+                        LDY  #700
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -303,7 +304,7 @@ RIGHT_WAIT_FOR_STRIP:   JSR  INIT_FWD
                         JSR  DELAY_50US
     
 RIGHT_WAIT_STRIP_FADE:  JSR  INIT_RIGHT_TRN
-                        LDY  #500
+                        LDY  #700
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -315,7 +316,7 @@ RIGHT_WAIT_STRIP_FADE:  JSR  INIT_RIGHT_TRN
                         BGE  RIGHT_WAIT_STRIP_FADE                ; Still on old strip, wait
 
 RIGHT_WAIT_STRIP_RISE:  JSR  INIT_RIGHT_TRN
-                        LDY  #500
+                        LDY  #700
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -358,13 +359,13 @@ INIT_ALL_STP            BCLR  PTT,%00110000                 ; Turn off the drive
                         RTS
                     
 ; Turn motors on to rotate right
-INIT_RIGHT_TRN          BCLR  PORTA,%00000010
+INIT_LEFT_TRN           BCLR  PORTA,%00000010
                         BSET  PORTA,%00000001               ; Set REV dir. for STARBOARD (right) motor
                         BSET  PTT,  %00110000
                         RTS
                     
 ; Turn motors on to rotate left
-INIT_LEFT_TRN           BCLR  PORTA,%00000001               ; Set FWD dir. for STARBOARD (right) motor
+INIT_RIGHT_TRN          BCLR  PORTA,%00000001               ; Set FWD dir. for STARBOARD (right) motor
                         BSET  PORTA,%00000010
                         BSET  PTT,  %00110000
                         RTS
@@ -457,9 +458,9 @@ OLD_HEAD_OK:            CBA                                 ; Calculate turn del
     
 TURN_OK:                ANDA  #$03                          ; Modulo 4 to get turn delta
     
-                        CMPA  #1                            ; Is it a right turn?
+                        CMPA  #1                            ; Is it a left turn?
                         BEQ   TURN_LEFT      
-                        CMPA  #3                            ; Is it a left turn?
+                        CMPA  #3                            ; Is it a right turn?
                         BEQ   TURN_RIGHT
                         BRA   NO_TURN
 

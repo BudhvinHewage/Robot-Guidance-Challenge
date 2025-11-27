@@ -35,12 +35,12 @@ STATE_RETRACING         EQU 6                               ; Full retrace back 
 
 ; <<<<<<<<<<<<<<<<<<<<< Adjust These Thresholds As Needed >>>>>>>>>>>>>>>>>>>
 ; Sensor Thresholds                                                                                 
-THRESH_CENTER_RIGHT     EQU $97                             ; If below this, robot is veering to the RIGHT
+THRESH_CENTER_RIGHT     EQU $85                             ; If below this, robot is veering to the RIGHT
 THRESH_CENTER_LEFT      EQU $DB                             ; If above this, robot is veering to the LEFT
 THRESH_BOW              EQU $CF                             ; Front sensor
 THRESH_MID              EQU $C0                             ; Middle sensor
-THRESH_PORT             EQU $C0                             ; Left sensor
-THRESH_STBD             EQU $C0                             ; Right sensor 
+THRESH_PORT             EQU $CE                             ; Left sensor
+THRESH_STBD             EQU $CE                             ; Right sensor 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -59,16 +59,13 @@ TWO_SECOND_DELAY        EQU 46                              ; Approx 2 seconds a
 SECOND_DELAY            EQU 25                              ; Approx 1 second at 23Hz
 HALF_SECOND_DELAY       EQU 12                              ; Approx 0.5 seconds at 23Hz
 
+
 ;-------------------------------------------------------------------
 ; Variable and Data Section
 ;-------------------------------------------------------------------      
 
                         ORG $3800                           ; Where our TOF counter register lives
-
-EXIT_LIST:              DS.B 2                              ; List of available exits at current intersections
-TEMP_STORAGE            DS.B 1
-TEMP_EXIT_ACCOUNT       DS.B 1
-
+FOUND_INTERSECTION      DS.B 1
 ; Sensors
 SENSOR_LINE             FCB $00                             ; Line Sensor
 SENSOR_BOW              FCB $00                             ; Front ("bow") sensor
@@ -100,6 +97,7 @@ HEADING:                DS.B 1                              ; 0..3 (N,E,S,W) or 
 ENTRY_DIRECTION:        DS.B 1                              ; Direction we entered current intersection from
 STATE:                  DS.B 1
 STACK_PTR:              DS.B 1                              ; Simple stack top for backtracking (store inter. indices)
+EXIT_LIST:              DS.B 2                              ; List of available exits at current intersections
 
 ; Robot Motion Time
 T_FWD                   DS.B  1                             ; FWD time
@@ -136,9 +134,6 @@ DP_MID_SENSOR           EQU BOT_LINE+3
 DP_STBD_SENSOR          EQU BOT_LINE+6
 DP_LINE_SENSOR          EQU BOT_LINE+9
 
-; Found Intersection Flag
-FOUND_INTERSECTION     DS.B 1                              ; Set to 1 when an intersection is found
-
 ;-------------------------------------------------------------------
 ; Initialization
 ;-------------------------------------------------------------------   
@@ -161,37 +156,21 @@ Entry:
 ;-------------------------------------------------------------------
 
 MAIN:                   BRSET PORTAD0,$04,NO_START          ; Check front bumper - if NOT pressed, skip to NO_START
-                        BRA   START_NAVIGATION              ; Bumper IS pressed, start navigation
+                        BRA   START_TURN             ; Bumper IS pressed, start navigation
 
 NO_START:               JSR   INIT_ALL_STP                  ; Keep motors stopped while waiting
                         BRA   MAIN                          ; Loop back and keep checking bumper
 
-START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line following
-                        LDAA  FOUND_INTERSECTION
-                        CMPA  #$01
-                        BEQ   EXIT_TEST               ; An intersection found, end main program
-                        BRA   START_NAVIGATION              ; Keep navigating
-
-EXIT_TEST               JSR   INIT_ALL_STP
+START_TURN              JSR   LEFT_WAIT_FOR_STRIP            ; Move forward until first strip detected to ensure on line
+                        JSR   INIT_ALL_STP
                         LDY   #10000
-                        JSR   DELAY_50US
-                        
-                        ; Set test heading
-                        MOVB  #2, HEADING       ; Facing East
-                        
-                        ; Calculate entry direction
-                        LDAA  HEADING
-                        ADDA  #2
-                        ANDA  #$03
-                        STAA  ENTRY_DIRECTION
-                        
-                        JSR   GET_EXITS          ; Set breakpoint here and examine results
-                        
-                        ; At this breakpoint, check:
-                        ; A = exit count (should be 1 or 2)
-                        ; B = first exit direction
-                        ; TEMP = second exit (if A=2)
-                        
+                        JSR   DELAY_50US                   ; Small delay to settle
+
+                        JSR   RIGHT_WAIT_FOR_STRIP
+                        JSR   INIT_ALL_STP
+                        LDY   #10000
+                        JSR   DELAY_50US                   ; Small delay to settle
+                                            
 END_MAIN:               SWI                                 ; Software Interrupt - end of main prograM
                         
 ;-------------------------------------------------------------------------- 
@@ -223,56 +202,32 @@ NO_INTERSECTION:        ; No intersection - do line following
                         BRA   LINE_NAV_FORWARD              ; Centered
 
 INTERSECTION_FOUND:     JSR   INIT_ALL_STP
+                        LDY   #5000
                         LDAA  #$01
                         STAA  FOUND_INTERSECTION
-                        
-                        JSR   INIT_FWD
-                        LDY   #1100
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_ALL_STP
-                        LDY   #1200
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_FWD
-                        LDY   #1100
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_ALL_STP
-                        LDY   #1200
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_FWD
-                        LDY   #500
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_ALL_STP
-                        LDY   #500
-                        JSR   DELAY_50US
-                        
                         JMP   LINE_NAV_EXIT
 
 LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
-                        LDY   #700                          ; <<< Adjust these values as needed
+                        LDY   #1000                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #500
+                        LDY   #400
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
-                        LDY   #700                          ; <<< Adjust these values as needed
+                        LDY   #1000                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #500
+                        LDY   #400
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #1200                         ; <<< Adjust these values as needed
+                        LDY   #1500                         ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #800
+                        LDY   #50
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
@@ -283,14 +238,14 @@ LINE_NAV_EXIT:          RTS
 ;---------------------------------------------------------------------------
 
 LEFT_WAIT_FOR_STRIP:    JSR  INIT_FWD
-                        LDY  #10000
+                        LDY  #8000
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #1000
                         JSR  DELAY_50US
                         
 LEFT_WAIT_STRIP_FADE:   JSR  INIT_LEFT_TRN
-                        LDY  #500
+                        LDY  #700
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -302,32 +257,7 @@ LEFT_WAIT_STRIP_FADE:   JSR  INIT_LEFT_TRN
                         BHS  LEFT_WAIT_STRIP_FADE                 ; Still on old strip, wait
 
 LEFT_WAIT_STRIP_RISE:   JSR  INIT_LEFT_TRN
-                        LDY  #500
-                        JSR  DELAY_50US
-                        JSR  INIT_ALL_STP
-                        LDY  #10
-                        JSR  DELAY_50US
-
-                        JSR SENSOR_READ
-                        LDAA SENSOR_BOW
-                        CMPA #THRESH_BOW
-                        BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
-                                        
-LEFT_WAIT_STRIP_DONE:  RTS
-
-;---------------------------------------------------------------------------
-; Wait for Strip Subroutine - Right Turn
-;---------------------------------------------------------------------------
-
-RIGHT_WAIT_FOR_STRIP:   JSR  INIT_FWD
-                        LDY  #10000
-                        JSR  DELAY_50US
-                        JSR  INIT_ALL_STP
-                        LDY  #1000
-                        JSR  DELAY_50US
-    
-RIGHT_WAIT_STRIP_FADE:  JSR  INIT_RIGHT_TRN
-                        LDY  #500
+                        LDY  #700
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -336,10 +266,35 @@ RIGHT_WAIT_STRIP_FADE:  JSR  INIT_RIGHT_TRN
                         JSR  SENSOR_READ
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
-                        BHS  RIGHT_WAIT_STRIP_FADE                ; Still on old strip, wait
+                        BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
+                                        
+LEFT_WAIT_STRIP_DONE:   RTS
+
+;---------------------------------------------------------------------------
+; Wait for Strip Subroutine - Right Turn
+;---------------------------------------------------------------------------
+
+RIGHT_WAIT_FOR_STRIP:   JSR  INIT_FWD
+                        LDY  #8000
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #1000
+                        JSR  DELAY_50US
+    
+RIGHT_WAIT_STRIP_FADE:  JSR  INIT_RIGHT_TRN
+                        LDY  #700
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #10
+                        JSR  DELAY_50US
+
+                        JSR  SENSOR_READ
+                        LDAA SENSOR_BOW
+                        CMPA #THRESH_BOW
+                        BGE  RIGHT_WAIT_STRIP_FADE                ; Still on old strip, wait
 
 RIGHT_WAIT_STRIP_RISE:  JSR  INIT_RIGHT_TRN
-                        LDY  #500
+                        LDY  #700
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -348,7 +303,7 @@ RIGHT_WAIT_STRIP_RISE:  JSR  INIT_RIGHT_TRN
                         JSR SENSOR_READ
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
-                        BLO  RIGHT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
+                        BLO  RIGHT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waiting                        
                                         
 RIGHT_WAIT_STRIP_DONE:  RTS
 
@@ -382,15 +337,15 @@ INIT_ALL_STP            BCLR  PTT,%00110000                 ; Turn off the drive
                         RTS
                     
 ; Turn motors on to rotate right
-INIT_RIGHT_TRN          BCLR  PORTA,%00000010
+INIT_LEFT_TRN          BCLR  PORTA,%00000010
                         BSET  PORTA,%00000001               ; Set REV dir. for STARBOARD (right) motor
                         BSET  PTT,  %00110000
                         RTS
                     
 ; Turn motors on to rotate left
-INIT_LEFT_TRN           BCLR  PORTA,%00000001               ; Set FWD dir. for STARBOARD (right) motor
+INIT_RIGHT_TRN           BCLR  PORTA,%00000001               ; Set FWD dir. for STARBOARD (right) motor
                         BSET  PORTA,%00000010
-                        BSET  PTT,%00110000
+                        BSET  PTT,  %00110000
                         RTS
 
 ; Turn motors on to pivot right (Port FWD, Starboard OFF)
@@ -462,15 +417,55 @@ RS_DONE:
                                                
 RS_EXIT                 RTS                                 ; Return from subroutine
 
+;--------------------------------------------------------------------------
+; Execute Turn to Heading - Turn robot to face specified absolute heading where on entry HEADING = desired heading and ENTRY_DIRECTION = direction we came from
+;--------------------------------------------------------------------------
+
+EXECUTE_TURN_TO_HEADING:LDAA  HEADING                       ; Get the heading we want to face
+                        LDAB  ENTRY_DIRECTION               ; Get old heading (reverse of entry), where it could be the the original heading into the intersection or the entry direction when backtracking
+                        
+                        ADDB  #2                            ; Calculate old heading + 2 (180 degree turn) where it is B + 2
+                        CMPB  #5                            ; Did we go above 4?
+                        BLO   OLD_HEAD_OK                   ; If not, we're good
+                        SUBB  #4                            ; Wrap around to 1..4
+    
+OLD_HEAD_OK:            CBA                                 ; Calculate turn delta: new - old
+                        BPL   TURN_OK                       ; If positive or zero, proceed
+                        ADDA  #4                            ; If negative, add 4 to get positive equivalent
+    
+    
+TURN_OK:                ANDA  #$03                          ; Modulo 4 to get turn delta
+    
+                        CMPA  #1                            ; Is it a right turn?
+                        BEQ   TURN_LEFT      
+                        CMPA  #3                            ; Is it a left turn?
+                        BEQ   TURN_RIGHT
+                        BRA   NO_TURN
+
+NO_TURN                 JSR   INIT_FWD                       ; Otherwise, it's a no-turn, so just go forward
+                        LDY   #10000                        ; Long forward movement pulse
+                        JSR   DELAY_50US
+                        JSR   INIT_ALL_STP                  ; Stop after pulse
+                        LDY   #1000                       ; Small delay to settle
+                        JSR   DELAY_50US
+                        BRA   TURN_COMPLETE
+    
+TURN_LEFT:              JSR   LEFT_WAIT_FOR_STRIP
+                        BRA   TURN_COMPLETE
+    
+
+TURN_RIGHT:             JSR   RIGHT_WAIT_FOR_STRIP
+                        BRA   TURN_COMPLETE
+
+TURN_COMPLETE           RTS
+
 ;-----------------------------------------------------------------------
 ; GET_EXITS - Determine available exits at current intersection, returning A = count, B = first exit, TEMP = second exit (if any)
 ;-----------------------------------------------------------------------
 
-GET_EXITS:              JSR   SENSOR_READ
-
-                        CLR   EXIT_LIST                     ; Clear exit list
+GET_EXITS:              CLR   EXIT_LIST                     ; Clear exit list
                         CLR   EXIT_LIST+1
-                        CLR   TEMP_STORAGE                             ; A will count exits found
+                        CLRA                                ; A will count exits found
                     
                         LDAB  SENSOR_PORT                   ; Check LEFT sensor by loading it into Accumulator B
                         CMPB  #THRESH_PORT                  ; Compare with dark threshold
@@ -482,8 +477,8 @@ GET_EXITS:              JSR   SENSOR_READ
                         BEQ   CHECK_STRAIGHT_SENSOR         ; Yes, skip it
                     
                         LDX   #EXIT_LIST                    ; No, it's a valid exit
-                        STAB  ,X                           ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is 0 since it is the first exit found
-                        INC   TEMP_STORAGE                                ; Increment Accumulator A by one to account for the fact that we found an exit on the left
+                        STAB  A,X                           ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is 0 since it is the first exit found
+                        INCA                                ; Increment Accumulator A by one to account for the fact that we found an exit on the left
     
 CHECK_STRAIGHT_SENSOR:  LDAB  SENSOR_BOW                    ; Check STRAIGHT sensor (SENSOR_BOW) 
                         CMPB  #THRESH_BOW                   ; Compare with dark threshold
@@ -493,12 +488,9 @@ CHECK_STRAIGHT_SENSOR:  LDAB  SENSOR_BOW                    ; Check STRAIGHT sen
                         CMPB  ENTRY_DIRECTION               ; Is this where we came from?
                         BEQ   CHECK_RIGHT_SENSOR            ; Yes, skip it
                         
-                        LDX   #EXIT_LIST
-                        STAB  TEMP_DIRECTION
-                        LDAB  TEMP_STORAGE
-                        ABX
-                        STAA  0,X
-                        INC   TEMP_STORAGE                              ; Increment Accumulator A by one to account for the fact that we found an exit on the straight path
+                        LDX   #EXIT_LIST                    ; No, it's a valid exit
+                        STAB   A,X                          ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is either 0 or 1 depending on whether left exit was found
+                        INCA                                ; Increment Accumulator A by one to account for the fact that we found an exit on the straight path
                     
 CHECK_RIGHT_SENSOR:     LDAB  SENSOR_STBD                   ; Check RIGHT sensor (SENSOR_STBD)
                         CMPB  #THRESH_STBD                  ; Compare with dark threshold
@@ -510,15 +502,11 @@ CHECK_RIGHT_SENSOR:     LDAB  SENSOR_STBD                   ; Check RIGHT sensor
                         BEQ   EXITS_FOUND                   ; Yes, skip it
                         
                         LDX   #EXIT_LIST                    ; No, it's a valid exit
-                        STAB  TEMP_DIRECTION
-                        LDAB  TEMP_STORAGE
-                        ABX
-                        STAA  0,X
-                        INC   TEMP_STORAGE                              ; Increment Accumulator A by one to account for the fact that we found an exit on the right path
+                        STAB  A,X                           ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is either 0, 1, or 2 depending on whether left and/or straight exits were found
+                        INCA                                ; Increment Accumulator A by one to account for the fact that we found an exit on the right path
 
 EXITS_FOUND:            LDAB  EXIT_LIST                     ; Load first exit into B
                
-                        LDAA  TEMP_STORAGE
                         CMPA  #2                            ; Did we find two exits?
                         BLO   GET_EXITS_DONE                ; If less than 2, we're done
                         LDAA  EXIT_LIST+1                   ; Load into Accumulator A the second exit
