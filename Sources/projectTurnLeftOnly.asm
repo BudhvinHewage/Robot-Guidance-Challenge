@@ -226,7 +226,11 @@ IDLE_ST_EXIT            RTS
 ; The Search State - Navigate until the first intersection is reached
 ;-------------------------------------------------------------------------
 
-SEARCH_ST:              JSR   SENSOR_READ                   ; Refresh sensor values  
+SEARCH_ST:              BRSET  PORTAD0,$04,NO_CHANGE
+                        LDAA   #STATE_BUMPER_COLLIDE
+                        STAA   CURRENT_STATE
+
+NO_FRONT_BUMPER         JSR   SENSOR_READ                   ; Refresh sensor values  
 
                         LDAA  SENSOR_MID                    ; Check if MID sensor has the main line
                         CMPA  #THRESH_MID
@@ -302,10 +306,6 @@ BACKTRACKING_ST:        JSR   SENSOR_READ
     
                         LDAA  SENSOR_PORT                   ; Check PORT sensor for line to check if we're back at the previous intersection
                         CMPA  #THRESH_PORT                  ; Compare with dark threshold
-                        BHS   BACK_AT_INTERSECTION          ; If above or equal, we're back at intersection
-                        
-                        LDAA  SENSOR_STBD                   ; Check STBD sensor for line to check if we're back at the previous intersection
-                        CMPA  #THRESH_STBD                  ; Compare with dark threshold
                         BHS   BACK_AT_INTERSECTION          ; If above or equal, we're back at intersection
                                                 
                         JSR   LINE_NAVIGATION               ; Move forward along line since no branching line has been detected yet
