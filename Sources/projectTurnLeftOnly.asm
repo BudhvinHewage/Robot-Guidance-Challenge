@@ -93,7 +93,6 @@ CURRENT_STATE           DC.B 0                              ; Current state regi
 MAZE_TABLE:             DS.B 24                             ; Maze table for up to 8 intersections (3 bytes each) where byte 0 = entry dir, byte 1 = first exit tried, byte 2 = second exit tried
 SCRATCH_DIR             DS.B 1                              ; Temporary storage for calculated directions
 TEMP                    DS.B 1                              ; Temporary storage for second exit
-MAZE_COUNT:             DS.B 1                              ; Number of intersections discovered
 CURRENT_INTERSECTION:   DS.B 1                              ; Index of current intersection (1..MAX)
 HEADING:                DS.B 1                              ; 0..3 (N,E,S,W) or use DIR_*
 ENTRY_DIRECTION:        DS.B 1                              ; Direction we entered current intersection from
