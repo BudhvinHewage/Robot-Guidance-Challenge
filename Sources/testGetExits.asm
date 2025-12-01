@@ -11,7 +11,9 @@
 ; Include derivative-specific definitions 
                         INCLUDE 'derivative.inc'
 
-; Test Get Exits from Intersection
+; The sensor value can show when exactly the robot will line up with the tape, adjust the value and play with it identify when it stop on the line, or as close as possible
+
+; The robot chosen for this challenge has the following serial number: 102933
 
 ;-------------------------------------------------------------------
 ; Equates Section
@@ -26,21 +28,20 @@ DIR_WEST                EQU 4
 
 ; The possible states of the robot
 STATE_IDLE              EQU 0                               ; Waiting for the start signal (bumper)
-STATE_SEARCH_LINE       EQU 1                               ; Following the line normally; looking for intersection
+STATE_SEARCH            EQU 1                               ; Following the line normally at the start of the maze and then looks for the first intersection
 STATE_AT_INTERSECTION   EQU 2                               ; Intersection logic: detect options, decide turn
 STATE_MOVING_BRANCH     EQU 3                               ; Move down the selected path (until next intersection or dead end)
 STATE_BUMPER_COLLIDE    EQU 4                               ; Dead end detected via front bumper (turnaround logic)
 STATE_BACKTRACKING      EQU 5                               ; Retrace back to last intersection and correct stored decision
 STATE_RETRACING         EQU 6                               ; Full retrace back to the start (following stored solutions only)
 
-; <<<<<<<<<<<<<<<<<<<<< Adjust These Thresholds As Needed >>>>>>>>>>>>>>>>>>>
-; Sensor Thresholds                                                                                 
-THRESH_CENTER_RIGHT     EQU $97                             ; If below this, robot is veering to the RIGHT
-THRESH_CENTER_LEFT      EQU $DB                             ; If above this, robot is veering to the LEFT
+; Thresholds for the sensors                                                                                   
+THRESH_CENTER_RIGHT     EQU $85                             ; If below this, robot is veering to the RIGHT
+THRESH_CENTER_LEFT      EQU $D4                             ; If above this, robot is veering to the LEFT
 THRESH_BOW              EQU $CF                             ; Front sensor
-THRESH_MID              EQU $C0                             ; Middle sensor
-THRESH_PORT             EQU $C0                             ; Left sensor
-THRESH_STBD             EQU $C0                             ; Right sensor 
+THRESH_MID              EQU $B5                             ; Middle sensor
+THRESH_PORT             EQU $B5                             ; Left sensor
+THRESH_STBD             EQU $B5                             ; Right sensor 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -53,65 +54,12 @@ PATH_UNKNOWN            EQU 0
 PATH_FAILED             EQU 1
 PATH_SUCCESS            EQU 2
 
-; Delay Intervals
-THREE_SECOND_DELAY      EQU 69                              ; Approx 3 seconds at 23Hz
-TWO_SECOND_DELAY        EQU 46                              ; Approx 2 seconds at 23Hz
-SECOND_DELAY            EQU 25                              ; Approx 1 second at 23Hz
-HALF_SECOND_DELAY       EQU 12                              ; Approx 0.5 seconds at 23Hz
-
-;-------------------------------------------------------------------
-; Variable and Data Section
-;-------------------------------------------------------------------      
-
-                        ORG $3800                           ; Where our TOF counter register lives
-
-EXIT_LIST:              DS.B 2                              ; List of available exits at current intersections
-TEMP_STORAGE            DS.B 1
-TEMP_EXIT_ACCOUNT       DS.B 1
-
-; Sensors
-SENSOR_LINE             FCB $00                             ; Line Sensor
-SENSOR_BOW              FCB $00                             ; Front ("bow") sensor
-SENSOR_PORT             FCB $00                             ; Left sensor
-SENSOR_MID              FCB $00                             ; Center sensor
-SENSOR_STBD             FCB $00                             ; Right sensor
-SENSOR_NUM              RMB 1                               ; The currently selected sensor
-NULL                    EQU 00
-
-TOP_LINE                RMB 20
-                        FCB NULL
-
-BOT_LINE                RMB 40
-                        FCB NULL
-
-; Tof Counter
-TOF_COUNTER             DC.B 0                              ; The timer, incremented at 23Hz
-CC                      DC.B 8
-CURRENT_STATE           DC.B 0                              ; Current state register
-
-
-; Storage for Maze Mapping
-MAZE_TABLE:             DS.B 24                             ; Maze table for up to 8 intersections (3 bytes each) where byte 0 = entry dir, byte 1 = first exit tried, byte 2 = second exit tried
-SCRATCH_DIR             DS.B 1                              ; Temporary storage for calculated directions
-TEMP                    DS.B 1                              ; Temporary storage for second exit
-MAZE_COUNT:             DS.B 1                              ; Number of intersections discovered
-CURRENT_INTERSECTION:   DS.B 1                              ; Index of current intersection (1..MAX)
-HEADING:                DS.B 1                              ; 0..3 (N,E,S,W) or use DIR_*
-ENTRY_DIRECTION:        DS.B 1                              ; Direction we entered current intersection from
-STATE:                  DS.B 1
-STACK_PTR:              DS.B 1                              ; Simple stack top for backtracking (store inter. indices)
-
-; Robot Motion Time
-T_FWD                   DS.B  1                             ; FWD time
-T_REV                   DS.B  1                             ; REV time
-T_RIGHT_TRN             DS.B  1                             ; RIGHT_TRN time - Was T_FWD_TRN
-T_LEFT_TRN              DS.B  1                             ; LEFT_TRN time - Was T_REV_TRN
-
 ;LCD ADDRESSES
 LCD_DAT                 EQU   PORTB                         ;LCD data port, bits - PB7,...,PB0
 LCD_CNTR                EQU   PTJ                           ;LCD control port, bits - PE7(RS),PE4(E)
 LCD_E                   EQU   $80                           ;LCD E-signal pin
 LCD_RS                  EQU   $40                           ;LCD RS-signal pin
+
 ;LCD DISPLAY EQUATES
 CLEAR_HOME              EQU $01
 INTERFACE               EQU $38
@@ -119,17 +67,61 @@ CURSOR_OFF              EQU $0C
 SHIFT_OFF               EQU $06
 LCD_SEC_LINE            EQU 64
 
+;-------------------------------------------------------------------
+; Variable and Data Section
+;-------------------------------------------------------------------      
 
+                        ORG $3800                           ; Where our TOF counter register lives
+
+; Temporary Storage 
+EXIT_LIST:              DS.B 2                             ; List of available exits at current intersections
+TEMP_DIRECTION          DS.B 1
+TEMP_EXIT_COUNT         DS.B 1
+TEMP_FIRST_EXIT         DS.B 1
+TEMP_SECOND_EXIT        DS.B 1
+
+; Sensors, beginning from $3806
+SENSOR_LINE             FCB $00                             ; Line Sensor
+SENSOR_BOW              FCB $00                             ; Front ("bow") sensor
+SENSOR_PORT             FCB $00                             ; Left sensor
+SENSOR_MID              FCB $00                             ; Center sensor
+SENSOR_STBD             FCB $00                             ; Right sensor
+
+SENSOR_NUM              RMB 1                               ; The currently selected sensor
+
+; Storage for Maze Mapping, beginning from $380C
+MAZE_TABLE:             DS.B 24                             ; Maze table for up to 8 intersections (3 bytes each) where byte 0 = entry dir, byte 1 = first exit tried, byte 2 = second exit tried
+
+; Variables for Maze Navigation, beginning from $3824
+SCRATCH_DIR             DS.B 1                              ; Temporary storage for calculated directions
+TEMP                    DS.B 1                              ; Temporary storage for second exit
+CURRENT_INTERSECTION:   DS.B 1                              ; Index of current intersection (1..MAX)
+HEADING:                DS.B 1                              ; 0..3 (N,E,S,W) or use DIR_*
+ENTRY_DIRECTION:        DS.B 1                              ; Direction we entered current intersection from
+STATE:                  DS.B 1
+STACK_PTR:              DS.B 1                              ; Simple stack top for backtracking (store inter. indices)
+CURRENT_STATE           DC.B 0                              ; Current state register
+
+NULL                    EQU 00
+
+; Tof Counter
+TOF_COUNTER             DC.B 0                              ; The timer, incremented at 23Hz
+CC                      DC.B 8
+
+; LCD Display Variables
 ALIVE_COUNTER           DS.B 1                              ; Counter to toggle ALIVE display
-STR_IDLE                DC.B "IDLE        " ,0
-STR_MOVING              DC.B "MOVING      " ,0 
+STR_IDLE                DC.B "IDLE        ",0
+STR_MOVING              DC.B "MOVING      ",0 
 STR_INTERSECTION        DC.B "INTERSECTION",0
 STR_BACKTRACK           DC.B "BACKTRACK   ",0 
 STR_UNKNOWN             DC.B "UNKNOWN     ",0   
+SENSOR_LABELS:          DC.B "PCPCSBS:"    ,0 
 
-SENSOR_LABELS:          DC.B "PCPCSBS:" ,0 
-                        
 ;LCD CURSOR POSITIONS FOR DISPLAY
+TOP_LINE                RMB 20
+                        FCB NULL
+BOT_LINE                RMB 40
+                        FCB NULL
 DP_FRONT_SENSOR         EQU TOP_LINE+3
 DP_PORT_SENSOR          EQU BOT_LINE+0
 DP_MID_SENSOR           EQU BOT_LINE+3
@@ -169,7 +161,7 @@ NO_START:               JSR   INIT_ALL_STP                  ; Keep motors stoppe
 START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line following
                         LDAA  FOUND_INTERSECTION
                         CMPA  #$01
-                        BEQ   EXIT_TEST               ; An intersection found, end main program
+                        BEQ   EXIT_TEST                     ; An intersection found, end main program
                         BRA   START_NAVIGATION              ; Keep navigating
 
 EXIT_TEST               JSR   INIT_ALL_STP
@@ -177,7 +169,7 @@ EXIT_TEST               JSR   INIT_ALL_STP
                         JSR   DELAY_50US
                         
                         ; Set test heading
-                        MOVB  #2, HEADING       ; Facing East
+                        MOVB  #2, HEADING                   ; Facing East
                         
                         ; Calculate entry direction
                         LDAA  HEADING
@@ -185,7 +177,7 @@ EXIT_TEST               JSR   INIT_ALL_STP
                         ANDA  #$03
                         STAA  ENTRY_DIRECTION
                         
-                        JSR   GET_EXITS          ; Set breakpoint here and examine results
+                        JSR   GET_EXITS                     ; Set breakpoint here and examine results
                         
                         ; At this breakpoint, check:
                         ; A = exit count (should be 1 or 2)
@@ -469,9 +461,9 @@ RS_EXIT                 RTS                                 ; Return from subrou
 GET_EXITS:              JSR   SENSOR_READ
 
                         CLR   EXIT_LIST                     ; Clear exit list
-                        CLR   EXIT_LIST+1
-                        CLR   TEMP_STORAGE                             ; A will count exits found
-                    
+                        CLR   EXIT_LIST+1                   ; Clear second exit
+                        CLR   TEMP_EXIT_COUNT               ; Clear exit count
+
                         LDAB  SENSOR_PORT                   ; Check LEFT sensor by loading it into Accumulator B
                         CMPB  #THRESH_PORT                  ; Compare with dark threshold
                         BLO   CHECK_STRAIGHT_SENSOR         ; If the result is below threshold, no left path so skip to straight check
@@ -482,8 +474,8 @@ GET_EXITS:              JSR   SENSOR_READ
                         BEQ   CHECK_STRAIGHT_SENSOR         ; Yes, skip it
                     
                         LDX   #EXIT_LIST                    ; No, it's a valid exit
-                        STAB  ,X                           ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is 0 since it is the first exit found
-                        INC   TEMP_STORAGE                                ; Increment Accumulator A by one to account for the fact that we found an exit on the left
+                        STAB  ,X                            ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is 0 since it is the first exit found
+                        INC   TEMP_EXIT_COUNT               ; Increment Accumulator A by one to account for the fact that we found an exit on the left
     
 CHECK_STRAIGHT_SENSOR:  LDAB  SENSOR_BOW                    ; Check STRAIGHT sensor (SENSOR_BOW) 
                         CMPB  #THRESH_BOW                   ; Compare with dark threshold
@@ -495,10 +487,11 @@ CHECK_STRAIGHT_SENSOR:  LDAB  SENSOR_BOW                    ; Check STRAIGHT sen
                         
                         LDX   #EXIT_LIST
                         STAB  TEMP_DIRECTION
-                        LDAB  TEMP_STORAGE
+                        LDAB  TEMP_EXIT_COUNT
                         ABX
+                        LDAA  TEMP_DIRECTION
                         STAA  0,X
-                        INC   TEMP_STORAGE                              ; Increment Accumulator A by one to account for the fact that we found an exit on the straight path
+                        INC   TEMP_EXIT_COUNT               ; Increment Accumulator A by one to account for the fact that we found an exit on the straight path
                     
 CHECK_RIGHT_SENSOR:     LDAB  SENSOR_STBD                   ; Check RIGHT sensor (SENSOR_STBD)
                         CMPB  #THRESH_STBD                  ; Compare with dark threshold
@@ -511,19 +504,21 @@ CHECK_RIGHT_SENSOR:     LDAB  SENSOR_STBD                   ; Check RIGHT sensor
                         
                         LDX   #EXIT_LIST                    ; No, it's a valid exit
                         STAB  TEMP_DIRECTION
-                        LDAB  TEMP_STORAGE
+                        LDAB  TEMP_EXIT_COUNT
                         ABX
+                        LDAA  TEMP_DIRECTION
                         STAA  0,X
-                        INC   TEMP_STORAGE                              ; Increment Accumulator A by one to account for the fact that we found an exit on the right path
+                        INC   TEMP_EXIT_COUNT               ; Increment Accumulator A by one to account for the fact that we found an exit on the right path
 
 EXITS_FOUND:            LDAB  EXIT_LIST                     ; Load first exit into B
-               
-                        LDAA  TEMP_STORAGE
+                        STAB  TEMP_FIRST_EXIT               ; Store first exit
+
+                        LDAA  TEMP_EXIT_COUNT
                         CMPA  #2                            ; Did we find two exits?
                         BLO   GET_EXITS_DONE                ; If less than 2, we're done
+                        
                         LDAA  EXIT_LIST+1                   ; Load into Accumulator A the second exit
-                        STAA  TEMP                          ; Store second exit in TEMP
-                        LDAA  #2                            ; Restore count
+                        STAA  TEMP_SECOND_EXIT              ; Store second exit 
                     
 GET_EXITS_DONE:         RTS
 

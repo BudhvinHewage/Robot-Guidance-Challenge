@@ -12,10 +12,8 @@
                         INCLUDE 'derivative.inc'
 
 ; The sensor value can show when exactly the robot will line up with the tape, adjust the value and play with it identify when it stop on the line, or as close as possible
-; Adjust the sensor values and the motor speed values for line navigation to the point that it is acceptable
-; Higher values would result in faster movement, but may overshoot the line
-; Keep testing until the robot can successfully navigate to an intersection and make a right turn
-; Then it should follow the line again until the next intersection or the end of the course
+
+; The robot chosen for this challenge has the following serial number: 102933
 
 ;-------------------------------------------------------------------
 ; Equates Section
@@ -30,21 +28,20 @@ DIR_WEST                EQU 4
 
 ; The possible states of the robot
 STATE_IDLE              EQU 0                               ; Waiting for the start signal (bumper)
-STATE_SEARCH_LINE       EQU 1                               ; Following the line normally; looking for intersection
+STATE_SEARCH            EQU 1                               ; Following the line normally at the start of the maze and then looks for the first intersection
 STATE_AT_INTERSECTION   EQU 2                               ; Intersection logic: detect options, decide turn
 STATE_MOVING_BRANCH     EQU 3                               ; Move down the selected path (until next intersection or dead end)
 STATE_BUMPER_COLLIDE    EQU 4                               ; Dead end detected via front bumper (turnaround logic)
 STATE_BACKTRACKING      EQU 5                               ; Retrace back to last intersection and correct stored decision
 STATE_RETRACING         EQU 6                               ; Full retrace back to the start (following stored solutions only)
 
-; <<<<<<<<<<<<<<<<<<<<< Adjust These Thresholds As Needed >>>>>>>>>>>>>>>>>>>
-; Sensor Thresholds                                                                                 
+; Thresholds for the sensors                                                                                   
 THRESH_CENTER_RIGHT     EQU $85                             ; If below this, robot is veering to the RIGHT
-THRESH_CENTER_LEFT      EQU $DB                             ; If above this, robot is veering to the LEFT
-THRESH_BOW              EQU $C0                             ; Front sensor
-THRESH_MID              EQU $C0                             ; Middle sensor
-THRESH_PORT             EQU $C0                             ; Left sensor
-THRESH_STBD             EQU $C0                             ; Right sensor 
+THRESH_CENTER_LEFT      EQU $D4                             ; If above this, robot is veering to the LEFT
+THRESH_BOW              EQU $CF                             ; Front sensor
+THRESH_MID              EQU $B5                             ; Middle sensor
+THRESH_PORT             EQU $B5                             ; Left sensor
+THRESH_STBD             EQU $B5                             ; Right sensor 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -57,60 +54,12 @@ PATH_UNKNOWN            EQU 0
 PATH_FAILED             EQU 1
 PATH_SUCCESS            EQU 2
 
-; Delay Intervals
-THREE_SECOND_DELAY      EQU 69                              ; Approx 3 seconds at 23Hz
-TWO_SECOND_DELAY        EQU 46                              ; Approx 2 seconds at 23Hz
-SECOND_DELAY            EQU 25                              ; Approx 1 second at 23Hz
-HALF_SECOND_DELAY       EQU 12                              ; Approx 0.5 seconds at 23Hz
-
-;-------------------------------------------------------------------
-; Variable and Data Section
-;-------------------------------------------------------------------      
-
-                        ORG $3800                           ; Where our TOF counter register lives
-; Sensors
-SENSOR_LINE             FCB $00                             ; Line Sensor
-SENSOR_BOW              FCB $00                             ; Front ("bow") sensor
-SENSOR_PORT             FCB $00                             ; Left sensor
-SENSOR_MID              FCB $00                             ; Center sensor
-SENSOR_STBD             FCB $00                             ; Right sensor
-SENSOR_NUM              RMB 1                               ; The currently selected sensor
-NULL                    EQU 00
-
-TOP_LINE                RMB 20
-                        FCB NULL
-
-BOT_LINE                RMB 40
-                        FCB NULL
-
-; Tof Counter
-TOF_COUNTER             DC.B 0                              ; The timer, incremented at 23Hz
-CC                      DC.B 8
-CURRENT_STATE           DC.B 0                              ; Current state register
-
-
-; Storage for Maze Mapping
-MAZE_TABLE:             DS.B 24                             ; Maze table for up to 8 intersections (3 bytes each) where byte 0 = entry dir, byte 1 = first exit tried, byte 2 = second exit tried
-SCRATCH_DIR             DS.B 1                              ; Temporary storage for calculated directions
-TEMP                    DS.B 1                              ; Temporary storage for second exit
-MAZE_COUNT:             DS.B 1                              ; Number of intersections discovered
-CURRENT_INTERSECTION:   DS.B 1                              ; Index of current intersection (1..MAX)
-HEADING:                DS.B 1                              ; 0..3 (N,E,S,W) or use DIR_*
-ENTRY_DIRECTION:        DS.B 1                              ; Direction we entered current intersection from
-STATE:                  DS.B 1
-STACK_PTR:              DS.B 1                              ; Simple stack top for backtracking (store inter. indices)
-
-; Robot Motion Time
-T_FWD                   DS.B  1                             ; FWD time
-T_REV                   DS.B  1                             ; REV time
-T_RIGHT_TRN             DS.B  1                             ; RIGHT_TRN time - Was T_FWD_TRN
-T_LEFT_TRN              DS.B  1                             ; LEFT_TRN time - Was T_REV_TRN
-
 ;LCD ADDRESSES
 LCD_DAT                 EQU   PORTB                         ;LCD data port, bits - PB7,...,PB0
 LCD_CNTR                EQU   PTJ                           ;LCD control port, bits - PE7(RS),PE4(E)
 LCD_E                   EQU   $80                           ;LCD E-signal pin
 LCD_RS                  EQU   $40                           ;LCD RS-signal pin
+
 ;LCD DISPLAY EQUATES
 CLEAR_HOME              EQU $01
 INTERFACE               EQU $38
@@ -118,22 +67,69 @@ CURSOR_OFF              EQU $0C
 SHIFT_OFF               EQU $06
 LCD_SEC_LINE            EQU 64
 
+;-------------------------------------------------------------------
+; Variable and Data Section
+;-------------------------------------------------------------------      
 
+                        ORG $3800                           ; Where our TOF counter register lives
+
+; Temporary Storage 
+EXIT_LIST:              DS.B 2                             ; List of available exits at current intersections
+TEMP_DIRECTION          DS.B 1
+TEMP_EXIT_COUNT         DS.B 1
+TEMP_FIRST_EXIT         DS.B 1
+TEMP_SECOND_EXIT        DS.B 1
+
+; Sensors, beginning from $3806
+SENSOR_LINE             FCB $00                             ; Line Sensor
+SENSOR_BOW              FCB $00                             ; Front ("bow") sensor
+SENSOR_PORT             FCB $00                             ; Left sensor
+SENSOR_MID              FCB $00                             ; Center sensor
+SENSOR_STBD             FCB $00                             ; Right sensor
+
+SENSOR_NUM              RMB 1                               ; The currently selected sensor
+
+; Storage for Maze Mapping, beginning from $380C
+MAZE_TABLE:             DS.B 24                             ; Maze table for up to 8 intersections (3 bytes each) where byte 0 = entry dir, byte 1 = first exit tried, byte 2 = second exit tried
+
+; Variables for Maze Navigation, beginning from $3824
+SCRATCH_DIR             DS.B 1                              ; Temporary storage for calculated directions
+TEMP                    DS.B 1                              ; Temporary storage for second exit
+CURRENT_INTERSECTION:   DS.B 1                              ; Index of current intersection (1..MAX)
+HEADING:                DS.B 1                              ; 0..3 (N,E,S,W) or use DIR_*
+ENTRY_DIRECTION:        DS.B 1                              ; Direction we entered current intersection from
+STATE:                  DS.B 1
+STACK_PTR:              DS.B 1                              ; Simple stack top for backtracking (store inter. indices)
+CURRENT_STATE           DC.B 0                              ; Current state register
+
+NULL                    EQU 00
+
+; Tof Counter
+TOF_COUNTER             DC.B 0                              ; The timer, incremented at 23Hz
+CC                      DC.B 8
+
+; LCD Display Variables
 ALIVE_COUNTER           DS.B 1                              ; Counter to toggle ALIVE display
-STR_IDLE                DC.B "IDLE        " ,0
-STR_MOVING              DC.B "MOVING      " ,0 
+STR_IDLE                DC.B "IDLE        ",0
+STR_MOVING              DC.B "MOVING      ",0 
 STR_INTERSECTION        DC.B "INTERSECTION",0
 STR_BACKTRACK           DC.B "BACKTRACK   ",0 
 STR_UNKNOWN             DC.B "UNKNOWN     ",0   
+SENSOR_LABELS:          DC.B "PCPCSBS:"    ,0 
 
-SENSOR_LABELS:          DC.B "PCPCSBS:" ,0 
-                        
 ;LCD CURSOR POSITIONS FOR DISPLAY
+TOP_LINE                RMB 20
+                        FCB NULL
+BOT_LINE                RMB 40
+                        FCB NULL
 DP_FRONT_SENSOR         EQU TOP_LINE+3
 DP_PORT_SENSOR          EQU BOT_LINE+0
 DP_MID_SENSOR           EQU BOT_LINE+3
 DP_STBD_SENSOR          EQU BOT_LINE+6
 DP_LINE_SENSOR          EQU BOT_LINE+9
+
+; Found Intersection Flag
+FOUND_INTERSECTION      DS.B 1                              ; Set to $01 when intersection is found
 
 ;-------------------------------------------------------------------
 ; Initialization
