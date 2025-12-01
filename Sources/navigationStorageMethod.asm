@@ -73,15 +73,21 @@ LCD_SEC_LINE            EQU 64
 
                         ORG $3800                           ; Where our TOF counter register lives
 
-; Temporary Storage 
-EXIT_LIST:              DS.B 2                              ; List of available exits at current intersections
-TEMP_DIRECTION          DS.B 1
-TEMP_EXIT_COUNT         DS.B 1
+; Temporary Storage
+
+; Storage for Maze Mapping, beginning from $380C
+CURRENT_INTERSECTION:   DS.B 1 
+MAZE_TABLE:             DS.B 24
+
+HEADING:                DS.B 1
 TEMP_FIRST_EXIT         DS.B 1
 TEMP_SECOND_EXIT        DS.B 1
 PORTCHECK:              DS.B 1
 STBDCHECK:              DS.B 1
 BOWCHECK:               DS.B 1
+EXIT_LIST:              DS.B 2                              ; List of available exits at current intersections
+TEMP_DIRECTION          DS.B 1
+TEMP_EXIT_COUNT         DS.B 1
 
 ; Sensors, beginning from $3806
 SENSOR_LINE             FCB $00                             ; Line Sensor
@@ -92,14 +98,11 @@ SENSOR_STBD             FCB $00                             ; Right sensor
 
 SENSOR_NUM              RMB 1                               ; The currently selected sensor
 
-; Storage for Maze Mapping, beginning from $380C
-MAZE_TABLE:             DS.B 24                             ; Maze table for up to 8 intersections (3 bytes each) where byte 0 = entry dir, byte 1 = first exit tried, byte 2 = second exit tried
+                             ; Maze table for up to 8 intersections (3 bytes each) where byte 0 = entry dir, byte 1 = first exit tried, byte 2 = second exit tried
 
 ; Variables for Maze Navigation, beginning from $3824
 SCRATCH_DIR             DS.B 1                              ; Temporary storage for calculated directions
-TEMP                    DS.B 1                              ; Temporary storage for second exit
-CURRENT_INTERSECTION:   DS.B 1                              ; Index of current intersection (1..MAX)
-HEADING:                DS.B 1                              ; 0..3 (N,E,S,W) or use DIR_*
+TEMP                    DS.B 1                              ; Temporary storage for second exit                              ; Index of current intersection (1..MAX)                              ; 0..3 (N,E,S,W) or use DIR_*
 ENTRY_DIRECTION:        DS.B 1                              ; Direction we entered current intersection from
 STATE:                  DS.B 1
 STACK_PTR:              DS.B 1                              ; Simple stack top for backtracking (store inter. indices)
@@ -268,20 +271,19 @@ AT_INTERSECTION_ST:     JSR   INIT_ALL_STP
                         
                         JSR   GET_INTERSECTION_PTR          ; Get pointer to current intersection data where X = address of 3-byte block
 
-                        LDAA  0,X                           ; Load entry direction stored at this intersection
+                        LDAA  ,X                           ; Load entry direction stored at this intersection
                         BNE   RETURN_VISIT                  ; If non-zero, we've been here before, since the Z flag is set only if Accumulator A is zero
 
                         LDAA  ENTRY_DIRECTION               ; First time here: store entry direction
-                        STAA  0,X                           ; Store entry direction
-                        INC   CURRENT_INTERSECTION          ; New intersection discovered!
+                        STAA  ,X                           ; Store entry direction
                         
-RETURN_VISIT:           CLR   TEMP_EXIT_COUNT               ; Clear exit count
+                        CLR   TEMP_EXIT_COUNT               ; Clear exit count
                         CLR   TEMP_FIRST_EXIT               ; Clear first exit
                         CLR   TEMP_SECOND_EXIT              ; Clear second exit
                         
-                        JSR   GET_EXITS                     ; Get available exits (returns count in A, directions in B and scratch)
-                        
-                        JSR   GET_INTERSECTION_PTR          ; X points to this intersection's data as GET_EXITS resulted in X pointing torwards EXIT_LIST
+                        JSR   GET_EXITS
+
+RETURN_VISIT:           JSR   GET_INTERSECTION_PTR          ; X points to this intersection's data as GET_EXITS resulted in X pointing torwards EXIT_LIST
 
                         LDAA  TEMP_EXIT_COUNT               ; Load number of exits found
                         CMPA  #1                            ; Is it an L-junction?
@@ -369,6 +371,14 @@ MOVING_BRANCH_ST:       BRSET PORTAD0,$04,NO_FWD_BUMP       ; Check front bumper
                         BRA   MOVING_BRANCH_EXIT
 
 NO_FWD_BUMP             BRSET PORTAD0,$08,NO_REAR_BUMP
+                        LDAA  HEADING                       ; Current heading (1-4)
+                        SUBA  #1                            ; Convert to 0-3 range
+                        ADDA  #2                            ; Add 180 degrees (2 in 0-3 system)
+                        ANDA  #$03                          ; Modulo 4 by keeping lower 2 bits
+                        ADDA  #1                            ; Convert back to 1-4 range
+                        STAA  HEADING
+                                       ; Store into Accumulator A the entry direction where 1 to 4 = N, E, S, W
+                        JSR   EXECUTE_U_TURN
                         LDAA  #STATE_RETRACING
                         STAA  CURRENT_STATE
                         BRA   MOVING_BRANCH_EXIT
@@ -425,38 +435,54 @@ BUMPER_COLLIDE_EXIT:    RTS
 ; The Retracing State - Retrace back to start following stored solutions
 ;-------------------------------------------------------------------------
 
-RETRACING_ST            LDAA  CURRENT_INTERSECTION
-                        BEQ   REACHED_START                 ; If at start, we're done retracing
+RETRACING_ST            BRSET PORTAD0,$04,NOT_START
+                        JMP   REACHED_START                 ; If at start, we're done retracing
 
+NOT_START               JSR   LINE_NAVIGATION               ; Move forward along line since no branching line has been detected yet
+                        
                         LDAA  PORTCHECK
                         ORAA  STBDCHECK
                         BNE   RETRACE_INTERSECTION          ; If at intersection, handle it
                         
-                        JSR   LINE_NAVIGATION               ; Move forward along line since no branching line has been detected yet
                         BRA   RETRACING_EXIT
 
 RETRACE_INTERSECTION:   JSR   INIT_ALL_STP                  ; Stop at intersection
 
-                        LDY   #1000                       ; Small delay to settle
+                        LDY   #1000                         ; Small delay to settle
                         JSR   DELAY_50US
 
+                        LDAA  HEADING
+                        
+                        ADDA  #2                            ; Calculate old heading + 2 (180 degree turn) where it is B + 2
+                        CMPA  #5                            ; Did we go above 4?
+                        BLO   REVERSE_ENTRY_GOOD                   ; If not, we're good
+                        SUBA  #4                            ; Wrap around to 1..4
+                        
+REVERSE_ENTRY_GOOD      STAA  ENTRY_DIRECTION
+                        
                         JSR   GET_INTERSECTION_PTR          ; X points to this intersection's data
                         LDAA  0,X                           ; Load entry direction
                         
                         STAA  HEADING                       ; Set heading to entry direction since we're retracing and its where we came from
                         
                         JSR   EXECUTE_TURN_TO_HEADING       ; Turn to face that direction
+                        
+                        JSR   GET_INTERSECTION_PTR          ; X points to this intersection's data
+                        LDAA  0,X
+                        STAA  HEADING
 
                         LDAA  CURRENT_INTERSECTION          ; Load current intersection index
                         DECA                                ; Decrement to previous intersection
                         STAA  CURRENT_INTERSECTION          ; Store updated intersection index
+                        
+                        
 
 RETRACING_EXIT:         RTS
 
 REACHED_START:          JSR   INIT_ALL_STP
-                        JST   INIT_PORTS
+                        JSR   INIT_PORTS
                         LDAA  #STATE_IDLE
-                        STAA  CURRENT_STATE
+                        STAA  CURRENT_STATE                 
                         RTS
                         
 ; -------------------------------------------------------------------------
@@ -488,7 +514,7 @@ BACKTRACKING_EXIT:      RTS
 GET_INTERSECTION_PTR:   LDX   #MAZE_TABLE                   ; Base of maze table
                         LDAA  CURRENT_INTERSECTION          ; Get current intersection index
                         LDAB  #3                            ; 3 bytes per intersection
-                        MUL                                 ; D = A Ã— B
+                        MUL                                 ; D = A Ãƒâ€” B
                         LEAX  D,X                           ; X = base + offset
                         RTS
  
@@ -599,20 +625,18 @@ EXECUTE_TURN_TO_HEADING:LDAA  HEADING                       ; Get the heading we
 
 ; B now has the old heading (1-4) and A has the desired new heading (1-4)
 
-OLD_HEAD_OK:            CBA                                 ; Calculate turn delta: A - B
+OLD_HEAD_OK:            SBA                                 ; Calculate turn delta: A - B
                         BPL   TURN_OK                       ; If positive or zero, proceed
                         ADDA  #4                            ; If negative, add 4 to get positive equivalent
     
     
-TURN_OK:                ANDA  #$03                          ; Modulo 4 to get turn delta
-    
-                        CMPA  #1                            ; Is it a left turn?
+TURN_OK:                CMPA  #1                            ; Is it a left turn?
                         BEQ   TURN_RIGHT      
                         CMPA  #3                            ; Is it a right turn?
                         BEQ   TURN_LEFT
 
 NO_TURN                 JSR   INIT_FWD                       ; Otherwise, it's a no-turn, so just go forward
-                        LDY   #10000                        ; Long forward movement pulse
+                        LDY   #5000                        ; Long forward movement pulse
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP                  ; Stop after pulse
                         LDY   #1000                       ; Small delay to settle
@@ -633,16 +657,9 @@ TURN_COMPLETE           RTS
 ;------------------------------------------------------------------------
 
 EXECUTE_U_TURN:         
-
-U_WAIT_FOR_STRIP:       JSR  INIT_REV
-                        LDY  #2000
-                        JSR  DELAY_50US
-                        JSR  INIT_ALL_STP
-                        LDY  #1000
-                        JSR  DELAY_50US
-                        
+                       
 U_WAIT_STRIP_FADE:      JSR  INIT_LEFT_TRN
-                        LDY  #700
+                        LDY  #800
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -651,10 +668,25 @@ U_WAIT_STRIP_FADE:      JSR  INIT_LEFT_TRN
                         JSR  SENSOR_READ
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
-                        BHS  U_WAIT_STRIP_FADE                 ; Still on old strip, wait
+                        BHS  READJUST
+
+READJUST                JSR  INIT_LEFT_TRN
+                        LDY  #7000
+                        JSR  DELAY_50US
+                        
+                        JSR  INIT_ALL_STP
+                        LDY  #10000
+                        JSR  DELAY_50US
+                        
+                        JSR  INIT_FWD
+                        LDY  #5000
+                        JSR  DELAY_50US                        
+                        JSR  INIT_ALL_STP
+                        LDY  #5000
+                        JSR  DELAY_50US
 
 U_WAIT_STRIP_RISE:      JSR  INIT_LEFT_TRN
-                        LDY  #700
+                        LDY  #800
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -665,11 +697,8 @@ U_WAIT_STRIP_RISE:      JSR  INIT_LEFT_TRN
                         CMPA #THRESH_BOW
                         BLO  U_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
                                         
-U_WAIT_STRIP_DONE:      JSR  INIT_LEFT_TRN
-                        LDY  #900
-                        JSR  DELAY_50US
-                        JSR  INIT_ALL_STP
-                        LDY  #5000
+U_WAIT_STRIP_DONE:      JSR  INIT_ALL_STP
+                        LDY  #10000
                         JSR  DELAY_50US
                         
                         RTS
@@ -704,7 +733,7 @@ NO_INTERSECTION:        LDAA  SENSOR_LINE                   ; No intersection - 
                         CMPA  #THRESH_CENTER_LEFT
                         BHS   LINE_NAV_RIGHT                ; Line to left
                         
-                        BRA   LINE_NAV_FORWARD              ; Centered
+                        JMP   LINE_NAV_FORWARD              ; Centered
 
 INTERSECTION_FOUND:     JSR   SENSOR_READ                   ; Refresh sensor values
                         
@@ -721,7 +750,15 @@ PORT_NOT_HIGH:          LDAA  SENSOR_STBD
                         STAA  STBDCHECK
 
 STBD_NOT_HIGH:          JSR   INIT_FWD
-                        LDY   #1000
+                        LDY   #1200
+                        JSR   DELAY_50US
+                        
+                        JSR   INIT_ALL_STP
+                        LDY   #1200
+                        JSR   DELAY_50US
+                        
+                        JSR   INIT_FWD
+                        LDY   #1100
                         JSR   DELAY_50US
                         
                         JSR   INIT_ALL_STP
@@ -730,14 +767,6 @@ STBD_NOT_HIGH:          JSR   INIT_FWD
                         
                         JSR   INIT_FWD
                         LDY   #1000
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_ALL_STP
-                        LDY   #1200
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_FWD
-                        LDY   #800
                         JSR   DELAY_50US
                         
                         JSR   INIT_ALL_STP
@@ -755,7 +784,7 @@ STBD_NOT_HIGH:          JSR   INIT_FWD
                         JMP   LINE_NAV_EXIT
 
 LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
-                        LDY   #900                          ; <<< Adjust these values as needed
+                        LDY   #1200                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         
                         JSR   INIT_ALL_STP
@@ -765,7 +794,7 @@ LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
-                        LDY   #900                          ; <<< Adjust these values as needed
+                        LDY   #1200                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         
                         JSR   INIT_ALL_STP
@@ -829,15 +858,15 @@ INIT_RIGHT_TRN          BCLR  PORTA,%00000001               ; Set FWD dir. for S
                         RTS
 
 ; Turn motors on to pivot right (Port FWD, Starboard OFF)
-INIT_SOFT_RIGHT:        BSET  PORTA,%00000010               ; Set Port (Left) direction FWD (0) (Assuming BCLR for FWD)
+INIT_SOFT_LEFT:         BCLR  PORTA,%00000010               ; Set Port (Left) direction FWD (0) (Assuming BCLR for FWD)
                         BCLR  PORTA,%00000001               ; Set Starboard (Right) direction FWD (0) - doesn't matter since it's off
                         BCLR  PTT,  %00010000               ; Turn OFF Starboard motor (bit 4)
                         BSET  PTT,  %00100000               ; Turn ON Port motor (bit 5)
                         RTS                    
 
 ; Turn motors on to pivot left (Starboard FWD, Port OFF)
-INIT_SOFT_LEFT:         BCLR  PORTA,%00000010               ; Set Port (Left) direction FWD (0) - doesn't matter since it's off
-                        BSET  PORTA,%00000001               ; Set Starboard (Right) direction FWD (0)
+INIT_SOFT_RIGHT:        BCLR  PORTA,%00000010               ; Set Port (Left) direction FWD (0) - doesn't matter since it's off
+                        BCLR  PORTA,%00000001               ; Set Starboard (Right) direction FWD (0)
                         BSET  PTT,  %00010000               ; Turn ON Starboard motor (bit 4)
                         BCLR  PTT,  %00100000               ; Turn OFF Port motor (bit 5)
                         RTS
@@ -893,7 +922,7 @@ RS_LOOP                 LDAA  SENSOR_NUM                    ; Load current senso
                         JSR   SELECT_SENSOR                 ; Select corresponding physical sensor
 
                         LDY   #400                        ; Wait ~20ms to stabilize sensor reading
-                        JSR   DELAY_50US                    ; (400 * 50ï¿½s = 20ms)
+                        JSR   DELAY_50US                    ; (400 * 50Ã¯Â¿Â½s = 20ms)
 
                         LDAA  #%10000001                    ; Configure ATD: single scan, channel AN1
                         STAA  ATDCTL5                       ; Start analog-to-digital conversion
@@ -916,11 +945,18 @@ RS_EXIT                 RTS                                 ; Return from subrou
 ;---------------------------------------------------------------------------
 
 LEFT_WAIT_FOR_STRIP:    JSR  INIT_FWD
-                        LDY  #6000
+                        LDY  #9000
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #1000
                         JSR  DELAY_50US
+                        JSR  INIT_LEFT_TRN
+                        LDY  #5000
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #1000
+                        JSR  DELAY_50US
+                        
                         
 LEFT_WAIT_STRIP_FADE:   JSR  INIT_LEFT_TRN
                         LDY  #700
@@ -947,7 +983,7 @@ LEFT_WAIT_STRIP_RISE:   JSR  INIT_LEFT_TRN
                         BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
                                         
 LEFT_WAIT_STRIP_DONE:   JSR  INIT_LEFT_TRN
-                        LDY  #700
+                        LDY  #1500
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #1000
@@ -959,7 +995,13 @@ LEFT_WAIT_STRIP_DONE:   JSR  INIT_LEFT_TRN
 ;---------------------------------------------------------------------------
 
 RIGHT_WAIT_FOR_STRIP:   JSR  INIT_FWD
-                        LDY  #6000
+                        LDY  #9000
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #1000
+                        JSR  DELAY_50US
+                        JSR  INIT_RIGHT_TRN
+                        LDY  #5000
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #1000
@@ -990,7 +1032,7 @@ RIGHT_WAIT_STRIP_RISE:  JSR  INIT_RIGHT_TRN
                         BLO  RIGHT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waiting                        
                                         
 RIGHT_WAIT_STRIP_DONE:  JSR  INIT_RIGHT_TRN
-                        LDY  #700
+                        LDY  #1500
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #1000
