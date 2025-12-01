@@ -34,8 +34,8 @@ STATE_BUMPER_COLLIDE    EQU 3                               ; Dead end detected 
 STATE_BACKTRACKING      EQU 4                               ; Retrace back to last intersection and correct stored decision
 
 ; Thresholds for the sensors                                                                                   
-THRESH_CENTER_RIGHT     EQU $85                             ; If below this, robot is veering to the RIGHT
-THRESH_CENTER_LEFT      EQU $D4                             ; If above this, robot is veering to the LEFT
+THRESH_CENTER_RIGHT     EQU $A5                             ; If below this, robot is veering to the RIGHT
+THRESH_CENTER_LEFT      EQU $C0                             ; If above this, robot is veering to the LEFT
 THRESH_BOW              EQU $CF                             ; Front sensor
 THRESH_MID              EQU $B5                             ; Middle sensor
 THRESH_PORT             EQU $B5                             ; Left sensor
@@ -148,7 +148,6 @@ Entry:
                         
                         CLR   CURRENT_STATE
                         CLR   CURRENT_INTERSECTION
-                        CLR   MAZE_COUNT
                         CLR   ENTRY_DIRECTION                        
 
                         LDX   #MAZE_TABLE
@@ -281,11 +280,6 @@ AT_INTERSECTION_EXIT:   RTS
 ;-------------------------------------------------------------------------
 
 BUMPER_COLLIDE_ST:      JSR   INIT_ALL_STP                  ; Stop motors
-
-                        JSR   INIT_REV                      ; Move backward slightly
-                        LDY   #5000                       ; Short reverse
-                        JSR   DELAY_50US
-                        JSR   INIT_ALL_STP                  ; Stop motors
                         LDY   #1000                       ; Small delay to settle
                         JSR   DELAY_50US
 
@@ -323,16 +317,9 @@ BACKTRACKING_EXIT:      RTS
 ;------------------------------------------------------------------------
 
 EXECUTE_U_TURN:         
-
-U_WAIT_FOR_STRIP:       JSR  INIT_REV
-                        LDY  #2000
-                        JSR  DELAY_50US
-                        JSR  INIT_ALL_STP
-                        LDY  #1000
-                        JSR  DELAY_50US
-                        
+                       
 U_WAIT_STRIP_FADE:      JSR  INIT_LEFT_TRN
-                        LDY  #700
+                        LDY  #800
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -341,10 +328,25 @@ U_WAIT_STRIP_FADE:      JSR  INIT_LEFT_TRN
                         JSR  SENSOR_READ
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
-                        BHS  U_WAIT_STRIP_FADE                 ; Still on old strip, wait
+                        BHS  READJUST
+
+READJUST                JSR  INIT_LEFT_TRN
+                        LDY  #6000
+                        JSR  DELAY_50US
+                        
+                        JSR  INIT_ALL_STP
+                        LDY  #10000
+                        JSR  DELAY_50US
+                        
+                        JSR  INIT_FWD
+                        LDY  #5000
+                        JSR  DELAY_50US                        
+                        JSR  INIT_ALL_STP
+                        LDY  #5000
+                        JSR  DELAY_50US
 
 U_WAIT_STRIP_RISE:      JSR  INIT_LEFT_TRN
-                        LDY  #700
+                        LDY  #800
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #10
@@ -356,10 +358,10 @@ U_WAIT_STRIP_RISE:      JSR  INIT_LEFT_TRN
                         BLO  U_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
                                         
 U_WAIT_STRIP_DONE:      JSR  INIT_LEFT_TRN
-                        LDY  #900
+                        LDY  #2000
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
-                        LDY  #5000
+                        LDY  #10000
                         JSR  DELAY_50US
                         
                         RTS
@@ -418,7 +420,7 @@ INTERSECTION_FOUND:     JSR   INIT_ALL_STP
                         JMP   LINE_NAV_EXIT
 
 LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
-                        LDY   #1000                          ; <<< Adjust these values as needed
+                        LDY   #1200                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
                         LDY   #500
@@ -426,7 +428,7 @@ LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
-                        LDY   #1000                          ; <<< Adjust these values as needed
+                        LDY   #1200                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
                         LDY   #500
@@ -434,7 +436,7 @@ LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #1200                         ; <<< Adjust these values as needed
+                        LDY   #1500                         ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
                         LDY   #800
@@ -474,27 +476,27 @@ INIT_ALL_STP            BCLR  PTT,%00110000                 ; Turn off the drive
                         RTS
                     
 ; Turn motors on to rotate right
-INIT_LEFT_TRN          BCLR  PORTA,%00000010
+INIT_LEFT_TRN           BCLR  PORTA,%00000010
                         BSET  PORTA,%00000001               ; Set REV dir. for STARBOARD (right) motor
                         BSET  PTT,  %00110000
                         RTS
                     
 ; Turn motors on to rotate left
-INIT_RIGHT_TRN           BCLR  PORTA,%00000001               ; Set FWD dir. for STARBOARD (right) motor
+INIT_RIGHT_TRN          BCLR  PORTA,%00000001               ; Set FWD dir. for STARBOARD (right) motor
                         BSET  PORTA,%00000010
                         BSET  PTT,  %00110000
                         RTS
 
 ; Turn motors on to pivot right (Port FWD, Starboard OFF)
-INIT_SOFT_RIGHT:        BSET  PORTA,%00000010               ; Set Port (Left) direction FWD (0) (Assuming BCLR for FWD)
+INIT_SOFT_LEFT:        BCLR  PORTA,%00000010               ; Set Port (Left) direction FWD (0) (Assuming BCLR for FWD)
                         BCLR  PORTA,%00000001               ; Set Starboard (Right) direction FWD (0) - doesn't matter since it's off
                         BCLR  PTT,  %00010000               ; Turn OFF Starboard motor (bit 4)
                         BSET  PTT,  %00100000               ; Turn ON Port motor (bit 5)
                         RTS                    
 
 ; Turn motors on to pivot left (Starboard FWD, Port OFF)
-INIT_SOFT_LEFT:         BCLR  PORTA,%00000010               ; Set Port (Left) direction FWD (0) - doesn't matter since it's off
-                        BSET  PORTA,%00000001               ; Set Starboard (Right) direction FWD (0)
+INIT_SOFT_RIGHT:         BCLR  PORTA,%00000010               ; Set Port (Left) direction FWD (0) - doesn't matter since it's off
+                        BCLR  PORTA,%00000001               ; Set Starboard (Right) direction FWD (0)
                         BSET  PTT,  %00010000               ; Turn ON Starboard motor (bit 4)
                         BCLR  PTT,  %00100000               ; Turn OFF Port motor (bit 5)
                         RTS
@@ -550,7 +552,7 @@ RS_LOOP                 LDAA  SENSOR_NUM                    ; Load current senso
                         JSR   SELECT_SENSOR                 ; Select corresponding physical sensor
 
                         LDY   #400                        ; Wait ~20ms to stabilize sensor reading
-                        JSR   DELAY_50US                    ; (400 * 50ï¿½s = 20ms)
+                        JSR   DELAY_50US                    ; (400 * 50Ã¯Â¿Â½s = 20ms)
 
                         LDAA  #%10000001                    ; Configure ATD: single scan, channel AN1
                         STAA  ATDCTL5                       ; Start analog-to-digital conversion
@@ -573,7 +575,7 @@ RS_EXIT                 RTS                                 ; Return from subrou
 ;---------------------------------------------------------------------------
 
 LEFT_WAIT_FOR_STRIP:    JSR  INIT_FWD
-                        LDY  #10000
+                        LDY  #8000
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #1000
@@ -604,7 +606,7 @@ LEFT_WAIT_STRIP_RISE:   JSR  INIT_LEFT_TRN
                         BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
                                         
 LEFT_WAIT_STRIP_DONE:   JSR  INIT_LEFT_TRN
-                        LDY  #900
+                        LDY  #1000
                         JSR  DELAY_50US
                         JSR  INIT_ALL_STP
                         LDY  #5000
