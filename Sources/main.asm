@@ -54,12 +54,6 @@ PATH_UNKNOWN            EQU 0
 PATH_FAILED             EQU 1
 PATH_SUCCESS            EQU 2
 
-; Delay Intervals
-THREE_SECOND_DELAY      EQU 69                              ; Approx 3 seconds at 23Hz
-TWO_SECOND_DELAY        EQU 46                              ; Approx 2 seconds at 23Hz
-SECOND_DELAY            EQU 25                              ; Approx 1 second at 23Hz
-HALF_SECOND_DELAY       EQU 12                              ; Approx 0.5 seconds at 23Hz
-
 ;LCD ADDRESSES
 LCD_DAT                 EQU   PORTB                         ;LCD data port, bits - PB7,...,PB0
 LCD_CNTR                EQU   PTJ                           ;LCD control port, bits - PE7(RS),PE4(E)
@@ -77,13 +71,16 @@ LCD_SEC_LINE            EQU 64
 ; Variable and Data Section
 ;-------------------------------------------------------------------      
 
-                        ORG 3600                           ; Where our TOF counter register lives
+                        ORG $3800                           ; Where our TOF counter register lives
 
-EXIT_LIST:              DS.B 2                              ; List of available exits at current intersections
+; Temporary Storage 
+EXIT_LIST:              DS.B 2                             ; List of available exits at current intersections
 TEMP_DIRECTION          DS.B 1
 TEMP_EXIT_COUNT         DS.B 1
+TEMP_FIRST_EXIT         DS.B 1
+TEMP_SECOND_EXIT        DS.B 1
 
-; Sensors - This begins from $3604
+; Sensors, beginning from $3806
 SENSOR_LINE             FCB $00                             ; Line Sensor
 SENSOR_BOW              FCB $00                             ; Front ("bow") sensor
 SENSOR_PORT             FCB $00                             ; Left sensor
@@ -91,20 +88,11 @@ SENSOR_MID              FCB $00                             ; Center sensor
 SENSOR_STBD             FCB $00                             ; Right sensor
 
 SENSOR_NUM              RMB 1                               ; The currently selected sensor
-NULL                    EQU 00
 
-TOP_LINE                RMB 20
-                        FCB NULL
-
-BOT_LINE                RMB 40
-                        FCB NULL
-
-; Tof Counter
-TOF_COUNTER             DC.B 0                              ; The timer, incremented at 23Hz
-CC                      DC.B 8
-
-; Storage for Maze Mapping and it begins from $3650
+; Storage for Maze Mapping, beginning from $380C
 MAZE_TABLE:             DS.B 24                             ; Maze table for up to 8 intersections (3 bytes each) where byte 0 = entry dir, byte 1 = first exit tried, byte 2 = second exit tried
+
+; Variables for Maze Navigation, beginning from $3824
 SCRATCH_DIR             DS.B 1                              ; Temporary storage for calculated directions
 TEMP                    DS.B 1                              ; Temporary storage for second exit
 CURRENT_INTERSECTION:   DS.B 1                              ; Index of current intersection (1..MAX)
@@ -114,22 +102,26 @@ STATE:                  DS.B 1
 STACK_PTR:              DS.B 1                              ; Simple stack top for backtracking (store inter. indices)
 CURRENT_STATE           DC.B 0                              ; Current state register
 
-; Robot Motion Time
-T_FWD                   DS.B  1                             ; FWD time
-T_REV                   DS.B  1                             ; REV time
-T_RIGHT_TRN             DS.B  1                             ; RIGHT_TRN time - Was T_FWD_TRN
-T_LEFT_TRN              DS.B  1                             ; LEFT_TRN time - Was T_REV_TRN
+NULL                    EQU 00
 
+; Tof Counter
+TOF_COUNTER             DC.B 0                              ; The timer, incremented at 23Hz
+CC                      DC.B 8
+
+; LCD Display Variables
 ALIVE_COUNTER           DS.B 1                              ; Counter to toggle ALIVE display
 STR_IDLE                DC.B "IDLE        ",0
 STR_MOVING              DC.B "MOVING      ",0 
 STR_INTERSECTION        DC.B "INTERSECTION",0
 STR_BACKTRACK           DC.B "BACKTRACK   ",0 
 STR_UNKNOWN             DC.B "UNKNOWN     ",0   
-
-SENSOR_LABELS:          DC.B "PCPCSBS:" ,0 
+SENSOR_LABELS:          DC.B "PCPCSBS:"    ,0 
 
 ;LCD CURSOR POSITIONS FOR DISPLAY
+TOP_LINE                RMB 20
+                        FCB NULL
+BOT_LINE                RMB 40
+                        FCB NULL
 DP_FRONT_SENSOR         EQU TOP_LINE+3
 DP_PORT_SENSOR          EQU BOT_LINE+0
 DP_MID_SENSOR           EQU BOT_LINE+3
@@ -144,19 +136,19 @@ DP_LINE_SENSOR          EQU BOT_LINE+9
                   
 Entry:
  _Startup:
-                        LDS #$4000                          ; Initialize the stack pointer
-                        CLI                                 ; Enable interrupt
+                        LDS  #$4000                          ; Initialize the stack pointer
+                        CLI                                  ; Enable interrupt
                         
                         CLR   CURRENT_STATE
                         CLR   CURRENT_INTERSECTION
                         CLR   ENTRY_DIRECTION                        
 
-                        LDX   #MAZE_TABLE
-                        LDAA  #24
-CLEAR_MAZE:             CLR   0,X
+                        LDX #MAZE_TABLE
+                        LDAA #24
+CLEAR_MAZE:             CLR 0,X
                         INX
                         DECA
-                        BNE   CLEAR_MAZE                        
+                        BNE CLEAR_MAZE                        
 
                         JSR INIT_PORTS
                         JSR INIT_ATD
@@ -218,16 +210,18 @@ DISP_EXIT               RTS                                 ; Exit from the stat
 ; The Idle State - Waiting for Start Signal
 ;--------------------------------------------------------------------------
 
-IDLE_ST                 BRSET  PORTAD0,$04,NO_CHANGE        ; The function BRSET tests if bit 2 (front bumper) of PORTAD0 is set and if it is not, branches to NO_IDLE_ST
-                        MOVB   #STATE_SEARCH,CURRENT_STATE
+IDLE_ST                 BRSET PORTAD0,$04,NO_CHANGE        ; The function BRSET tests if bit 2 (front bumper) of PORTAD0 is set and if it is not, branches to NO_IDLE_ST
+                        MOVB  #STATE_SEARCH,CURRENT_STATE
                         
-                        JSR    INIT_FWD
-                        LDY    #6000
-                        JSR    DELAY_50US
+                        JSR   INIT_FWD
+                        LDY   #2000
+                        JSR   DELAY_50US
                         
-                        JSR    INIT_ALL_STP
-                        
-                        BRA    IDLE_ST_EXIT
+                        JSR   INIT_ALL_STP
+                        LDY   #1000
+                        JSR   DELAY_50US
+
+                        BRA   IDLE_ST_EXIT
                         
 NO_CHANGE               NOP                                 ; Do nothing while idle
 
@@ -272,41 +266,56 @@ AT_INTERSECTION_ST:     JSR   INIT_ALL_STP
                         
                         JSR   SENSOR_READ                   ; Refresh sensor values
 
-                        LDAA  HEADING                       ; Current heading   
-                        ADDA  #2                            ; Add 180 degrees
-                        ANDA  #$03                          ; Modulo 4 by clearing upper bits
+                        LDAA  HEADING                       ; Current heading (1-4)
+                        SUBA  #1                            ; Convert to 0-3 range
+                        ADDA  #2                            ; Add 180 degrees (2 in 0-3 system)
+                        ANDA  #$03                          ; Modulo 4 by keeping lower 2 bits
+                        ADDA  #1                            ; Convert back to 1-4 range
                         STAA  ENTRY_DIRECTION               ; Store into Accumulator A the entry direction where 1 to 4 = N, E, S, W
-
                         
                         JSR   GET_INTERSECTION_PTR          ; Get pointer to current intersection data where X = address of 3-byte block
 
                         LDAA  0,X                           ; Load entry direction stored at this intersection
-                        BNE   RETURN_VISIT                  ; If non-zero, we've been here before
+                        BNE   RETURN_VISIT                  ; If non-zero, we've been here before, since the Z flag is set only if Accumulator A is zero
 
                         LDAA  ENTRY_DIRECTION               ; First time here: store entry direction
                         STAA  0,X                           ; Store entry direction
                         INC   CURRENT_INTERSECTION          ; New intersection discovered!
                         
-RETURN_VISIT:           JSR   GET_EXITS                     ; Get available exits (returns count in A, directions in B and scratch)
+RETURN_VISIT:           CLR   TEMP_EXIT_COUNT               ; Clear exit count
+                        CLR   TEMP_FIRST_EXIT               ; Clear first exit
+                        CLR   TEMP_SECOND_EXIT              ; Clear second exit
                         
-                        JSR   GET_INTERSECTION_PTR           ; X points to this intersection's data as GET_EXITS resulted in X pointing torwards EXIT_LIST
+                        JSR   GET_EXITS                     ; Get available exits (returns count in A, directions in B and scratch)
+                        
+                        JSR   GET_INTERSECTION_PTR          ; X points to this intersection's data as GET_EXITS resulted in X pointing torwards EXIT_LIST
 
+                        LDAA  TEMP_EXIT_COUNT               ; Load number of exits found
                         CMPA  #1                            ; Is it an L-junction?
                         BEQ   HANDLE_L_JUNCTION       
                         CMPA  #2                            ; Is it a T-junction?
                         BEQ   HANDLE_T_JUNCTION       
 
+; At this point, the pointer is pointing to the current intersection data in MAZE_TABLE
+; So, the bits will be storing the following with a value that represents the absolute direction
+; Byte 0: Entry Direction
+; Byte 1: First Exit Tried
+; Byte 2: Second Exit Tried
+
 HANDLE_L_JUNCTION:      LDAA  1,X                           ; Check if we've been here before
                         BNE   L_BEEN_HERE                   ; BNE checks if A is non-zero
                         
+                        LDAB  TEMP_FIRST_EXIT               ; Get first exit
                         STAB  1,X                           ; Store the byte into 
-                        TBA                                 ; Move first exit to Accumulator A to Accumulator B
-                        STAA  HEADING                       ; Set heading to first exit
+                        STAB  HEADING                       ; Set heading to first exit
                         JSR   EXECUTE_TURN_TO_HEADING       ; Turn to new heading 
                         
                         LDAA  #STATE_MOVING_BRANCH
                         STAA  CURRENT_STATE
                         BRA   AT_INTERSECTION_EXIT
+
+; Since we've been here before, we must have tried the only exit already, so backtrack
+; This is accomplished by identifying the entry direction and turning in that direction to exit the junction
 
 L_BEEN_HERE:            LDAA  ENTRY_DIRECTION               ; Load into Accumulator A the entry direction of the intersection
                         STAA  HEADING                       ; Set the desired heading to the entry direction to 'turn around' and revisit the previous intersection
@@ -316,12 +325,16 @@ L_BEEN_HERE:            LDAA  ENTRY_DIRECTION               ; Load into Accumula
                         STAA  CURRENT_STATE
                         BRA   AT_INTERSECTION_EXIT
 
+; At this point, we know it's a T-junction with two available exits
+; Therefore, the function call GET_EXITS must have populated TEMP_FIRST_EXIT and TEMP_SECOND_EXIT with valid exit directions
+; Then it becomes a matter of checking which exits we've already tried by looking at bytes 1 and 2 of the intersection data in MAZE_TABLE
+
 HANDLE_T_JUNCTION:      LDAA  1,X                           ; Check what we've tried
                         BNE   T_TRIED_FIRST                 ; If non-zero, we've tried one option already
 
-                        STAB  1,X                           ; Store first exit tried
-                        TBA                                 ; Move first exit to A  
-                        STAA  HEADING                       ; Set heading to first exit
+                        LDAB  TEMP_FIRST_EXIT               ; Get first exit
+                        STAB  1,X                           ; Store first exit that will be tried
+                        STAB  HEADING                       ; Set heading to first exit
                         JSR   EXECUTE_TURN_TO_HEADING       ; Turn to new heading
 
                         LDAA  #STATE_MOVING_BRANCH
@@ -331,17 +344,17 @@ HANDLE_T_JUNCTION:      LDAA  1,X                           ; Check what we've t
 T_TRIED_FIRST:          LDAA  2,X                           ; Check second attempt                         
                         BNE   T_TRIED_BOTH                  ; If non-zero, we've tried both options
 
-                        LDAA  TEMP                          ; Get right option
-                        STAA  2,X                           ; Record right exit
-                        STAA  HEADING                       ; Set heading to right exit
+                        LDAB  TEMP_SECOND_EXIT              ; Get right option
+                        STAB  2,X                           ; Record right exit
+                        STAB  HEADING                       ; Set heading to right exit
                         JSR   EXECUTE_TURN_TO_HEADING       ; Turn to new heading
 
                         LDAA  #STATE_MOVING_BRANCH 
                         STAA  CURRENT_STATE
                         BRA   AT_INTERSECTION_EXIT
 
-T_TRIED_BOTH:           LDAA  ENTRY_DIRECTION               ; Load into Accumulator A the entry direction of the intersection
-                        STAA  HEADING                       ; Set the desired heading to the entry direction to 'turn around' and revisit the previous intersection
+T_TRIED_BOTH:           LDAB  ENTRY_DIRECTION               ; Load into Accumulator A the entry direction of the intersection
+                        STAB  HEADING                       ; Set the desired heading to the entry direction to 'turn around' and revisit the previous intersection
                         JSR   EXECUTE_TURN_TO_HEADING
 
                         LDAA  #STATE_BACKTRACKING           ; Continue backtracking
@@ -381,6 +394,8 @@ NO_REAR_BUMP            JSR   SENSOR_READ                   ; Refresh sensor val
                         BRA   MOVING_BRANCH_EXIT                        
 
 NEW_BRANCH_DETECTED:    JSR   INIT_ALL_STP                  ; Stop motors at intersection and then add new intersection count
+                        LDY   #1000                       ; Small delay to settle
+                        JSR   DELAY_50US
 
                         LDAA  CURRENT_INTERSECTION          ; Load current intersection index
                         INCA                                ; Increment to next intersection
@@ -398,7 +413,7 @@ MOVING_BRANCH_EXIT:     RTS
 BUMPER_COLLIDE_ST:      JSR   INIT_ALL_STP                  ; Stop motors
 
                         JSR   INIT_REV                      ; Move backward slightly
-                        LDY   #5000                       ; Short reverse
+                        LDY   #2000                       ; Short reverse
                         JSR   DELAY_50US
                         
                         JSR   INIT_ALL_STP                  ; Stop motors
@@ -406,8 +421,10 @@ BUMPER_COLLIDE_ST:      JSR   INIT_ALL_STP                  ; Stop motors
                         JSR   DELAY_50US
                         
                         LDAA  HEADING                       ; Load current heading
+                        SUBA  #1                            ; Convert to 0-3 range
                         ADDA  #2                            ; Add 180 degrees
                         ANDA  #$03                          ; Modulo 4
+                        ADDA  #1                            ; Convert back to 1-4 range
                         STAA  HEADING                       ; Store new heading
 
                         JSR   EXECUTE_U_TURN                ; Execute U-turn
@@ -505,9 +522,9 @@ GET_INTERSECTION_PTR:   LDX   #MAZE_TABLE                   ; Base of maze table
 GET_EXITS:              JSR   SENSOR_READ
 
                         CLR   EXIT_LIST                     ; Clear exit list
-                        CLR   EXIT_LIST+1
-                        CLR   TEMP_EXIT_COUNT               ; A will count exits found
-                    
+                        CLR   EXIT_LIST+1                   ; Clear second exit
+                        CLR   TEMP_EXIT_COUNT               ; Clear exit count
+
                         LDAB  SENSOR_PORT                   ; Check LEFT sensor by loading it into Accumulator B
                         CMPB  #THRESH_PORT                  ; Compare with dark threshold
                         BLO   CHECK_STRAIGHT_SENSOR         ; If the result is below threshold, no left path so skip to straight check
@@ -519,7 +536,7 @@ GET_EXITS:              JSR   SENSOR_READ
                     
                         LDX   #EXIT_LIST                    ; No, it's a valid exit
                         STAB  ,X                            ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is 0 since it is the first exit found
-                        INC   TEMP_EXIT_COUNT                                ; Increment Accumulator A by one to account for the fact that we found an exit on the left
+                        INC   TEMP_EXIT_COUNT               ; Increment Accumulator A by one to account for the fact that we found an exit on the left
     
 CHECK_STRAIGHT_SENSOR:  LDAB  SENSOR_BOW                    ; Check STRAIGHT sensor (SENSOR_BOW) 
                         CMPB  #THRESH_BOW                   ; Compare with dark threshold
@@ -535,7 +552,7 @@ CHECK_STRAIGHT_SENSOR:  LDAB  SENSOR_BOW                    ; Check STRAIGHT sen
                         ABX
                         LDAA  TEMP_DIRECTION
                         STAA  0,X
-                        INC   TEMP_EXIT_COUNT                              ; Increment Accumulator A by one to account for the fact that we found an exit on the straight path
+                        INC   TEMP_EXIT_COUNT               ; Increment Accumulator A by one to account for the fact that we found an exit on the straight path
                     
 CHECK_RIGHT_SENSOR:     LDAB  SENSOR_STBD                   ; Check RIGHT sensor (SENSOR_STBD)
                         CMPB  #THRESH_STBD                  ; Compare with dark threshold
@@ -552,16 +569,17 @@ CHECK_RIGHT_SENSOR:     LDAB  SENSOR_STBD                   ; Check RIGHT sensor
                         ABX
                         LDAA  TEMP_DIRECTION
                         STAA  0,X
-                        INC   TEMP_EXIT_COUNT                              ; Increment Accumulator A by one to account for the fact that we found an exit on the right path
+                        INC   TEMP_EXIT_COUNT               ; Increment Accumulator A by one to account for the fact that we found an exit on the right path
 
 EXITS_FOUND:            LDAB  EXIT_LIST                     ; Load first exit into B
-               
+                        STAB  TEMP_FIRST_EXIT               ; Store first exit
+
                         LDAA  TEMP_EXIT_COUNT
                         CMPA  #2                            ; Did we find two exits?
                         BLO   GET_EXITS_DONE                ; If less than 2, we're done
+                        
                         LDAA  EXIT_LIST+1                   ; Load into Accumulator A the second exit
-                        STAA  TEMP                          ; Store second exit in TEMP
-                        LDAA  #2                            ; Restore count
+                        STAA  TEMP_SECOND_EXIT              ; Store second exit 
                     
 GET_EXITS_DONE:         RTS
 
@@ -596,13 +614,19 @@ RIGHT_OK:               STAA  SCRATCH_DIR                   ; Store result
 
 EXECUTE_TURN_TO_HEADING:LDAA  HEADING                       ; Get the heading we want to face
                         LDAB  ENTRY_DIRECTION               ; Get old heading (reverse of entry), where it could be the the original heading into the intersection or the entry direction when backtracking
-                        
+
+; This is to recalculate the current heading since it is not tracked in the subroutine
+; Heading is currently storing the direction we wish to head towards
+; Therefore, we need to calculate the old heading based on the entry direction
+
                         ADDB  #2                            ; Calculate old heading + 2 (180 degree turn) where it is B + 2
                         CMPB  #5                            ; Did we go above 4?
                         BLO   OLD_HEAD_OK                   ; If not, we're good
                         SUBB  #4                            ; Wrap around to 1..4
-    
-OLD_HEAD_OK:            CBA                                 ; Calculate turn delta: new - old
+
+; B now has the old heading (1-4) and A has the desired new heading (1-4)
+
+OLD_HEAD_OK:            CBA                                 ; Calculate turn delta: A - B
                         BPL   TURN_OK                       ; If positive or zero, proceed
                         ADDA  #4                            ; If negative, add 4 to get positive equivalent
     
@@ -610,10 +634,9 @@ OLD_HEAD_OK:            CBA                                 ; Calculate turn del
 TURN_OK:                ANDA  #$03                          ; Modulo 4 to get turn delta
     
                         CMPA  #1                            ; Is it a left turn?
-                        BEQ   TURN_LEFT      
+                        BEQ   TURN_RIGHT      
                         CMPA  #3                            ; Is it a right turn?
-                        BEQ   TURN_RIGHT
-                        BRA   NO_TURN
+                        BEQ   TURN_LEFT
 
 NO_TURN                 JSR   INIT_FWD                       ; Otherwise, it's a no-turn, so just go forward
                         LDY   #10000                        ; Long forward movement pulse
@@ -684,12 +707,10 @@ U_WAIT_STRIP_DONE:      JSR  INIT_LEFT_TRN
 
 LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor values
 
-                        ; Check if MID sensor has the main line
                         LDAA  SENSOR_MID
                         CMPA  #THRESH_MID
                         BLO   NO_INTERSECTION               ; MID doesn't see line = not at intersection
 
-                        ; MID sees line - now check for branch lines
                         LDAA  SENSOR_PORT
                         CMPA  #THRESH_PORT
                         BHS   INTERSECTION_FOUND            ; PORT high + MID high = real intersection
@@ -698,20 +719,17 @@ LINE_NAVIGATION:        JSR   SENSOR_READ                   ; Refresh sensor val
                         CMPA  #THRESH_STBD
                         BHS   INTERSECTION_FOUND            ; STBD high + MID high = real intersection
 
-NO_INTERSECTION:        ; No intersection - do line following
-                        LDAA  SENSOR_LINE                   ; Use differential for positioning
+NO_INTERSECTION:        LDAA  SENSOR_LINE                   ; No intersection - do line following
+                        
                         CMPA  #THRESH_CENTER_RIGHT
-                        BLO   LINE_NAV_LEFT                ; Line to right
+                        BLO   LINE_NAV_LEFT                 ; Line to right
                         
                         CMPA  #THRESH_CENTER_LEFT
-                        BHS   LINE_NAV_RIGHT                 ; Line to left
+                        BHS   LINE_NAV_RIGHT                ; Line to left
+                        
                         BRA   LINE_NAV_FORWARD              ; Centered
 
-INTERSECTION_FOUND:     JSR   INIT_ALL_STP
-                        LDAA  #$01
-                        STAA  FOUND_INTERSECTION
-                        
-                        JSR   INIT_FWD
+INTERSECTION_FOUND:     JSR   INIT_FWD
                         LDY   #1100
                         JSR   DELAY_50US
                         
@@ -738,7 +756,7 @@ INTERSECTION_FOUND:     JSR   INIT_ALL_STP
                         JMP   LINE_NAV_EXIT
 
 LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
-                        LDY   #700                          ; <<< Adjust these values as needed
+                        LDY   #800                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         
                         JSR   INIT_ALL_STP
@@ -748,7 +766,7 @@ LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
-                        LDY   #700                          ; <<< Adjust these values as needed
+                        LDY   #800                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         
                         JSR   INIT_ALL_STP

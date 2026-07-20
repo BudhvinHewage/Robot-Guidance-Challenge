@@ -129,7 +129,7 @@ DP_STBD_SENSOR          EQU BOT_LINE+6
 DP_LINE_SENSOR          EQU BOT_LINE+9
 
 ; Found Intersection Flag
-FOUND_INTERSECTION     DS.B 1                              ; Set to 1 when an intersection is found
+FOUND_INTERSECTION      DS.B 1                              ; Set to $01 when intersection is found
 
 ;-------------------------------------------------------------------
 ; Initialization
@@ -161,29 +161,17 @@ NO_START:               JSR   INIT_ALL_STP                  ; Keep motors stoppe
 START_NAVIGATION:       JSR   LINE_NAVIGATION               ; Execute line following
                         LDAA  FOUND_INTERSECTION
                         CMPA  #$01
-                        BEQ   EXIT_TEST                     ; An intersection found, end main program
+                        BEQ   RIGHT_TURN_TEST               ; An intersection found, end main program
                         BRA   START_NAVIGATION              ; Keep navigating
 
-EXIT_TEST               JSR   INIT_ALL_STP
-                        LDY   #10000
+RIGHT_TURN_TEST         JSR   RIGHT_WAIT_FOR_STRIP           ; Wait for strip fade/rise
+                        LDY   #20000                        ; 
                         JSR   DELAY_50US
+                        BRA   FINAL_NAVIGATION
                         
-                        ; Set test heading
-                        MOVB  #2, HEADING                   ; Facing East
-                        
-                        ; Calculate entry direction
-                        LDAA  HEADING
-                        ADDA  #2
-                        ANDA  #$03
-                        STAA  ENTRY_DIRECTION
-                        
-                        JSR   GET_EXITS                     ; Set breakpoint here and examine results
-                        
-                        ; At this breakpoint, check:
-                        ; A = exit count (should be 1 or 2)
-                        ; B = first exit direction
-                        ; TEMP = second exit (if A=2)
-                        
+FINAL_NAVIGATION        JSR   LINE_NAVIGATION 
+                        BRA   FINAL_NAVIGATION
+
 END_MAIN:               SWI                                 ; Software Interrupt - end of main prograM
                         
 ;-------------------------------------------------------------------------- 
@@ -217,95 +205,33 @@ NO_INTERSECTION:        ; No intersection - do line following
 INTERSECTION_FOUND:     JSR   INIT_ALL_STP
                         LDAA  #$01
                         STAA  FOUND_INTERSECTION
-                        
-                        JSR   INIT_FWD
-                        LDY   #1100
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_ALL_STP
-                        LDY   #1200
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_FWD
-                        LDY   #1100
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_ALL_STP
-                        LDY   #1200
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_FWD
-                        LDY   #500
-                        JSR   DELAY_50US
-                        
-                        JSR   INIT_ALL_STP
-                        LDY   #500
-                        JSR   DELAY_50US
-                        
                         JMP   LINE_NAV_EXIT
 
 LINE_NAV_LEFT:          JSR   INIT_SOFT_LEFT
-                        LDY   #700                          ; <<< Adjust these values as needed
+                        LDY   #1000                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #500
+                        LDY   #50
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_RIGHT:         JSR   INIT_SOFT_RIGHT
-                        LDY   #700                          ; <<< Adjust these values as needed
+                        LDY   #1000                          ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #500
+                        LDY   #50
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_FORWARD:       JSR   INIT_FWD
-                        LDY   #1200                         ; <<< Adjust these values as needed
+                        LDY   #2000                         ; <<< Adjust these values as needed
                         JSR   DELAY_50US
                         JSR   INIT_ALL_STP
-                        LDY   #800
+                        LDY   #50
                         JSR   DELAY_50US
                         BRA   LINE_NAV_EXIT
 
 LINE_NAV_EXIT:          RTS                   
-
-;---------------------------------------------------------------------------
-; Wait for Strip Subroutine - Left Turn
-;---------------------------------------------------------------------------
-
-LEFT_WAIT_FOR_STRIP:    JSR  INIT_FWD
-                        LDY  #10000
-                        JSR  DELAY_50US
-                        JSR  INIT_ALL_STP
-                        LDY  #1000
-                        JSR  DELAY_50US
-                        
-LEFT_WAIT_STRIP_FADE:   JSR  INIT_LEFT_TRN
-                        LDY  #500
-                        JSR  DELAY_50US
-                        JSR  INIT_ALL_STP
-                        LDY  #10
-                        JSR  DELAY_50US
-
-                        JSR  SENSOR_READ
-                        LDAA SENSOR_BOW
-                        CMPA #THRESH_BOW
-                        BHS  LEFT_WAIT_STRIP_FADE                 ; Still on old strip, wait
-
-LEFT_WAIT_STRIP_RISE:   JSR  INIT_LEFT_TRN
-                        LDY  #500
-                        JSR  DELAY_50US
-                        JSR  INIT_ALL_STP
-                        LDY  #10
-                        JSR  DELAY_50US
-
-                        JSR SENSOR_READ
-                        LDAA SENSOR_BOW
-                        CMPA #THRESH_BOW
-                        BLO  LEFT_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
-                                        
-LEFT_WAIT_STRIP_DONE:  RTS
 
 ;---------------------------------------------------------------------------
 ; Wait for Strip Subroutine - Right Turn
@@ -453,98 +379,6 @@ RS_LOOP                 LDAA  SENSOR_NUM                    ; Load current senso
 RS_DONE:
                                                
 RS_EXIT                 RTS                                 ; Return from subroutine
-
-;-----------------------------------------------------------------------
-; GET_EXITS - Determine available exits at current intersection, returning A = count, B = first exit, TEMP = second exit (if any)
-;-----------------------------------------------------------------------
-
-GET_EXITS:              JSR   SENSOR_READ
-
-                        CLR   EXIT_LIST                     ; Clear exit list
-                        CLR   EXIT_LIST+1
-                        CLR   TEMP_EXIT_COUNT               ; A will count exits found
-                    
-                        LDAB  SENSOR_PORT                   ; Check LEFT sensor by loading it into Accumulator B
-                        CMPB  #THRESH_PORT                  ; Compare with dark threshold
-                        BLO   CHECK_STRAIGHT_SENSOR         ; If the result is below threshold, no left path so skip to straight check
-    
-                        JSR   GET_LEFT_DIRECTION            ; Since left path exists, calculate its absolute direction
-                        LDAB  SCRATCH_DIR                   ; Load calculated left direction
-                        CMPB  ENTRY_DIRECTION               ; Is this where we came from?
-                        BEQ   CHECK_STRAIGHT_SENSOR         ; Yes, skip it
-                    
-                        LDX   #EXIT_LIST                    ; No, it's a valid exit
-                        STAB  ,X                            ; Store this exit direction, from Accumulator B to EXIT_LIST at index A which in this case is 0 since it is the first exit found
-                        INC   TEMP_EXIT_COUNT                                ; Increment Accumulator A by one to account for the fact that we found an exit on the left
-    
-CHECK_STRAIGHT_SENSOR:  LDAB  SENSOR_BOW                    ; Check STRAIGHT sensor (SENSOR_BOW) 
-                        CMPB  #THRESH_BOW                   ; Compare with dark threshold
-                        BLO   CHECK_RIGHT_SENSOR            ; If below threshold, no straight path so skip to right check
-                        
-                        LDAB  HEADING                       ; Since straight path exists, its absolute direction is current heading
-                        CMPB  ENTRY_DIRECTION               ; Is this where we came from?
-                        BEQ   CHECK_RIGHT_SENSOR            ; Yes, skip it
-                        
-                        LDX   #EXIT_LIST
-                        STAB  TEMP_DIRECTION
-                        LDAB  TEMP_EXIT_COUNT
-                        ABX
-                        LDAA  TEMP_DIRECTION
-                        STAA  0,X
-                        INC   TEMP_EXIT_COUNT                              ; Increment Accumulator A by one to account for the fact that we found an exit on the straight path
-                    
-CHECK_RIGHT_SENSOR:     LDAB  SENSOR_STBD                   ; Check RIGHT sensor (SENSOR_STBD)
-                        CMPB  #THRESH_STBD                  ; Compare with dark threshold
-                        BLO   EXITS_FOUND                   ; If below threshold, no right path so finish
-                        
-                        JSR   GET_RIGHT_DIRECTION           ; Returns direction in SCRATCH_DIR
-                        LDAB  SCRATCH_DIR                   ; Load calculated right direction
-                        CMPB  ENTRY_DIRECTION               ; Is this where we came from?
-                        BEQ   EXITS_FOUND                   ; Yes, skip it
-                        
-                        LDX   #EXIT_LIST                    ; No, it's a valid exit
-                        STAB  TEMP_DIRECTION
-                        LDAB  TEMP_EXIT_COUNT
-                        ABX
-                        LDAA  TEMP_DIRECTION
-                        STAA  0,X
-                        INC   TEMP_EXIT_COUNT                              ; Increment Accumulator A by one to account for the fact that we found an exit on the right path
-
-EXITS_FOUND:            LDAB  EXIT_LIST                     ; Load first exit into B
-               
-                        LDAA  TEMP_EXIT_COUNT
-                        CMPA  #2                            ; Did we find two exits?
-                        BLO   GET_EXITS_DONE                ; If less than 2, we're done
-                        
-                        LDAA  EXIT_LIST+1                   ; Load into Accumulator A the second exit
-                        STAA  TEMP_SECOND_EXIT              ; Store second exit 
-                    
-GET_EXITS_DONE:         RTS
-
-; -----------------------------------------------------------------------
-; GET_LEFT_DIRECTION - Calculate absolute direction of relative left and store in SCRATCH_DIR
-; -----------------------------------------------------------------------
-
-GET_LEFT_DIRECTION:     LDAA  HEADING                       ; Load current heading (1=N, 2=E, 3=S, 4=W)
-                        DECA                                ; Heading - 1
-                        CMPA  #0                            ; Did we go below 1? (0 is invalid)
-                        BNE   LEFT_OK                       ; If not, we're good
-                        LDAA  #4                            ; Wrap around to 4 (W)
-                                        
-LEFT_OK:                STAA  SCRATCH_DIR                   ; Store result
-                        RTS
-
-; -----------------------------------------------------------------------
-; GET_RIGHT_DIRECTION - Calculate absolute direction of relative right and store in SCRATCH_DIR
-; -----------------------------------------------------------------------
-GET_RIGHT_DIRECTION:    LDAA  HEADING                       ; Load current heading (1=N, 2=E, 3=S, 4=W)
-                        INCA                                ; Heading + 1                  
-                        CMPA  #5                            ; Did we go above 4? (5 is invalid)
-                        BLO   RIGHT_OK                      ; If not, we're good
-                        LDAA  #1                            ; Wrap around to 1 (N)
-
-RIGHT_OK:               STAA  SCRATCH_DIR                   ; Store result
-                        RTS
 
 ;---------------------------------------------------------------------------
 ; Sensor Selector Subroutine
@@ -831,41 +665,7 @@ BIN2ASC    PSHA
            PULB
            RTS
            
-; ----------------------------------------------------------------------
-; GET_INTERSECTION_PTR - Get pointer to current intersection data block in MAZE_TABLE
-;----------------------------------------------------------------------
 
-GET_INTERSECTION_PTR:   LDX   #MAZE_TABLE                   ; Base of maze table
-                        LDAA  CURRENT_INTERSECTION          ; Get current intersection index
-                        LDAB  #3                            ; 3 bytes per intersection
-                        MUL                                 ; D = A Ã— B
-                        LEAX  D,X                           ; X = base + offset
-                        RTS
-
-; -----------------------------------------------------------------------
-; GET_LEFT_DIRECTION - Calculate absolute direction of relative left and store in SCRATCH_DIR
-; -----------------------------------------------------------------------
-
-GET_LEFT_DIRECTION:     LDAA  HEADING                       ; Load current heading (1=N, 2=E, 3=S, 4=W)
-                        DECA                                ; Heading - 1
-                        CMPA  #0                            ; Did we go below 1? (0 is invalid)
-                        BNE   LEFT_OK                       ; If not, we're good
-                        LDAA  #4                            ; Wrap around to 4 (W)
-                                        
-LEFT_OK:                STAA  SCRATCH_DIR                   ; Store result
-                        RTS
-
-; -----------------------------------------------------------------------
-; GET_RIGHT_DIRECTION - Calculate absolute direction of relative right and store in SCRATCH_DIR
-; -----------------------------------------------------------------------
-GET_RIGHT_DIRECTION:    LDAA  HEADING                       ; Load current heading (1=N, 2=E, 3=S, 4=W)
-                        INCA                                ; Heading + 1                  
-                        CMPA  #5                            ; Did we go above 4? (5 is invalid)
-                        BLO   RIGHT_OK                      ; If not, we're good
-                        LDAA  #1                            ; Wrap around to 1 (N)
-
-RIGHT_OK:               STAA  SCRATCH_DIR                   ; Store result
-                        RTS                        
                         
 
 ;--------------------------------------------------------------------------
