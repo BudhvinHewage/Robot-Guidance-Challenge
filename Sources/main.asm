@@ -39,9 +39,9 @@ STATE_RETRACING         EQU 6                               ; Full retrace back 
 THRESH_CENTER_RIGHT     EQU $85                             ; If below this, robot is veering to the RIGHT
 THRESH_CENTER_LEFT      EQU $D4                             ; If above this, robot is veering to the LEFT
 THRESH_BOW              EQU $CF                             ; Front sensor
-THRESH_MID              EQU $C0                             ; Middle sensor
-THRESH_PORT             EQU $CE                             ; Left sensor
-THRESH_STBD             EQU $CE                             ; Right sensor 
+THRESH_MID              EQU $B9                             ; Middle sensor
+THRESH_PORT             EQU $B9                             ; Left sensor
+THRESH_STBD             EQU $B9                             ; Right sensor 
 
 ; Motor Timing Intervals
 FWD_INT                 EQU 10                              ; Forward movement interval
@@ -107,7 +107,6 @@ CC                      DC.B 8
 MAZE_TABLE:             DS.B 24                             ; Maze table for up to 8 intersections (3 bytes each) where byte 0 = entry dir, byte 1 = first exit tried, byte 2 = second exit tried
 SCRATCH_DIR             DS.B 1                              ; Temporary storage for calculated directions
 TEMP                    DS.B 1                              ; Temporary storage for second exit
-MAZE_COUNT:             DS.B 1                              ; Number of intersections discovered
 CURRENT_INTERSECTION:   DS.B 1                              ; Index of current intersection (1..MAX)
 HEADING:                DS.B 1                              ; 0..3 (N,E,S,W) or use DIR_*
 ENTRY_DIRECTION:        DS.B 1                              ; Direction we entered current intersection from
@@ -150,7 +149,6 @@ Entry:
                         
                         CLR   CURRENT_STATE
                         CLR   CURRENT_INTERSECTION
-                        CLR   MAZE_COUNT
                         CLR   ENTRY_DIRECTION                        
 
                         LDX   #MAZE_TABLE
@@ -287,7 +285,7 @@ AT_INTERSECTION_ST:     JSR   INIT_ALL_STP
 
                         LDAA  ENTRY_DIRECTION               ; First time here: store entry direction
                         STAA  0,X                           ; Store entry direction
-                        INC   MAZE_COUNT                    ; New intersection discovered!
+                        INC   CURRENT_INTERSECTION          ; New intersection discovered!
                         
 RETURN_VISIT:           JSR   GET_EXITS                     ; Get available exits (returns count in A, directions in B and scratch)
                         
@@ -638,7 +636,46 @@ TURN_COMPLETE           RTS
 ; Execute U-Turn - Perform a 180 degree turn
 ;------------------------------------------------------------------------
 
-EXECUTE_U_TURN:         JSR  LEFT_WAIT_FOR_STRIP
+EXECUTE_U_TURN:         
+
+U_WAIT_FOR_STRIP:       JSR  INIT_REV
+                        LDY  #2000
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #1000
+                        JSR  DELAY_50US
+                        
+U_WAIT_STRIP_FADE:      JSR  INIT_LEFT_TRN
+                        LDY  #700
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #10
+                        JSR  DELAY_50US
+
+                        JSR  SENSOR_READ
+                        LDAA SENSOR_BOW
+                        CMPA #THRESH_BOW
+                        BHS  U_WAIT_STRIP_FADE                 ; Still on old strip, wait
+
+U_WAIT_STRIP_RISE:      JSR  INIT_LEFT_TRN
+                        LDY  #700
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #10
+                        JSR  DELAY_50US
+
+                        JSR  SENSOR_READ
+                        LDAA SENSOR_BOW
+                        CMPA #THRESH_BOW
+                        BLO  U_WAIT_STRIP_RISE                ; New strip not detected yet, keep waitingg
+                                        
+U_WAIT_STRIP_DONE:      JSR  INIT_LEFT_TRN
+                        LDY  #900
+                        JSR  DELAY_50US
+                        JSR  INIT_ALL_STP
+                        LDY  #5000
+                        JSR  DELAY_50US
+                        
                         RTS
  
 ;-------------------------------------------------------------------------- 
@@ -921,7 +958,7 @@ RIGHT_WAIT_STRIP_FADE:  JSR  INIT_RIGHT_TRN
                         JSR  SENSOR_READ
                         LDAA SENSOR_BOW
                         CMPA #THRESH_BOW
-                        BGE  RIGHT_WAIT_STRIP_FADE                ; Still on old strip, wait
+                        BHS  RIGHT_WAIT_STRIP_FADE                ; Still on old strip, wait
 
 RIGHT_WAIT_STRIP_RISE:  JSR  INIT_RIGHT_TRN
                         LDY  #700
