@@ -4,6 +4,8 @@ An HCS12-based `eebot` mobile robot, programmed in assembly, that learns and sol
 
 **Result: solved.** The robot successfully completed the full round trip, storing the correct direction at each intersection in an array and retracing the maze error-free on the return leg — the only student in the class to get the robot all the way back to the starting point.
 
+Built primarily solo — a friend contributed to parts of the implementation, but the majority of the design and code is my own work.
+
 ## The Challenge
 
 - The robot starts at the maze entry point and follows a guidance line.
